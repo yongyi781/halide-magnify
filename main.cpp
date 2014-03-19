@@ -4,29 +4,29 @@ using namespace std;
 using namespace Halide;
 using namespace cv;
 
-Var x("x"), y("y"), c("c"), w("w");
-
-ImageParam ip(Float(32), 3);
-ImageParam ip_uint8(UInt(8), 3);
+Var x("x"), y("y"), c("c");
+const int WIDTH = 640, HEIGHT = 480, CHANNELS = 3;
 
 template<typename F0>
 double timing(F0 f, int iterations = 1)
 {
-	auto start = chrono::high_resolution_clock::now();
+	auto t0 = chrono::high_resolution_clock::now();
 	for (int i = 0; i < iterations; ++i)
 		f();
-	auto end = chrono::high_resolution_clock::now();
+	auto t1 = chrono::high_resolution_clock::now();
 	double p = (double)chrono::high_resolution_clock::period::num / chrono::high_resolution_clock::period::den;
-	return (end - start).count() * p / iterations;
+	return (t1 - t0).count() * p / iterations;
 }
 
+// Prints timing in milliseconds
 template<typename F0>
-void printTiming(F0 f, string message = "", int iterations = 1)
+double printTiming(F0 f, string message = "", int iterations = 1)
 {
 	if (!message.empty())
 		cout << message << flush;
 	double t = timing(f, iterations);
-	cout << setprecision(15) << t << " s" << endl;
+	cout << setprecision(3) << 1000 * t << " ms" << endl;
+	return t;
 }
 
 template<typename T>
@@ -80,177 +80,218 @@ Func upsample(Func f)
     return upy;
 }
 
-Image<float> toImage(const Mat& mat)
+// Converts a Mat to an Image<float> and reorders the data to be in the order (width, height, channels).
+Image<float> toImage_reorder(const Mat& mat)
 {
-    static Func convertFromMat;
-    if (!convertFromMat.defined())
-    {
-        convertFromMat(x, y, c) = ip_uint8(2 - c, x, y) / 255.0f;
-        convertFromMat.compile_jit();
-    }
-    Image<uint8_t> im = Image<uint8_t>(Buffer(UInt(8), mat.channels(), mat.cols, mat.rows, 0, mat.data));
-    ip_uint8.set(im);
-    return convertFromMat.realize(im.height(), im.channels(), im.width());
+	static Func convert;
+	static ImageParam ip(UInt(8), 3);
+	static Var xi, yi;
+
+	if (!convert.defined())
+	{
+		convert(x, y, c) = ip(c, x, y) / 255.0f;
+		convert.vectorize(x, 4).parallel(y, 4);
+	}
+
+	ip.set(Buffer(UInt(8), mat.channels(), mat.cols, mat.rows, 0, mat.data));
+	return convert.realize(mat.cols, mat.rows, mat.channels());
 }
 
-Image<uint16_t> toImage16(const Mat& mat)
+// Converts a reordered Image<uint8_t> (width, height, channels) to a Mat (CV_8UC3).
+void toMat_reordered(const Image<float>& im, Mat& mat)
 {
-    static Func convertFromMat16;
-    if (!convertFromMat16.defined())
-    {
-        convertFromMat16(x, y, c) = cast<uint16_t>(ip_uint8(2 - c, x, y)) * 256;
-        convertFromMat16.compile_jit();
-    }
-    Image<uint8_t> im = Image<uint8_t>(Buffer(UInt(8), mat.channels(), mat.cols, mat.rows, 0, mat.data));
-    ip_uint8.set(im);
-    return convertFromMat16.realize(im.height(), im.channels(), im.width());
+	static Func convert;
+	static ImageParam ip(Float(32), 3);
+	static Var xi, yi;
+
+	if (!convert.defined())
+	{
+		convert(c, x, y) = cast<uint8_t>(ip(x, y, c) * 255);
+		convert.vectorize(x, 4).parallel(y, 4);
+	}
+
+	ip.set(im);
+	convert.realize(Buffer(UInt(8), im.channels(), im.width(), im.height(), 0, mat.data));
 }
 
-Mat toMat(const Image<float>& im)
+// Returns Gaussian pyramid of an image.
+template<int J>
+array<Func, J> gaussianPyramid(Func in)
 {
-    static Func convertToMat;
-    if (!convertToMat.defined())
-    {
-        convertToMat(c, x, y) = cast<uint8_t>(round(ip(x, y, 2 - c) * 255));
-        convertToMat.compile_jit();
-    }
-    Mat out(im.height(), im.width(), CV_8UC3);
-    Image<uint8_t> matIm(Buffer(UInt(8), im.channels(), im.width(), im.height(), 0, out.data));
-    ip.set(im);
-    convertToMat.realize(matIm);
-    return out;
+	array<Func, J> gPyramid;
+	gPyramid[0](x, y, _) = in(x, y, _);
+	for (int j = 1; j < J; j++)
+		gPyramid[j](x, y, _) = downsample(gPyramid[j - 1])(x, y, _);
+	return gPyramid;
+}
+
+// Returns Laplacian pyramid of a Gaussian pyramid.
+template<int J>
+array<Func, J> laplacianPyramid(array<Func, J> gPyramid)
+{
+	array<Func, J> lPyramid;
+	lPyramid[J - 1](x, y, _) = gPyramid[J - 1](x, y, _);
+	for (int j = J - 2; j >= 0; j--)
+		lPyramid[j](x, y, _) = gPyramid[j](x, y, _) - upsample(gPyramid[j + 1])(x, y, _);
+	return lPyramid;
 }
 
 // Reconstructs image from Laplacian pyramid
 template<int J>
-Func reconstruct(ImageParam (&lPyramid)[J])
+Func reconstruct(ImageParam(&lPyramid)[J])
 {
-    Func clamped[J];
-    for (int i = 0; i < J; i++)
-        clamped[i] = clipToEdges(lPyramid[i]);
-    Func output[J];
-    output[J-1](x, y, _) = clamped[J-1](x, y, _);
-    for (int j = J-2; j >= 0; j--)
-        output[j](x, y, _) = upsample(output[j+1])(x, y, _) + clamped[j](x, y, _);
-    for (int i = 0; i < J; i++)
-        output[i].compute_root();
-    return output[0];
+	Func clamped[J];
+	for (int i = 0; i < J; i++)
+		clamped[i] = clipToEdges(lPyramid[i]);
+	Func output[J];
+	output[J - 1](x, y, _) = clamped[J - 1](x, y, _);
+	for (int j = J - 2; j >= 0; j--)
+		output[j](x, y, _) = upsample(output[j + 1])(x, y, _) + clamped[j](x, y, _);
+	for (int i = 1; i < J; i++)
+		output[i].compute_root().vectorize(x, 4).parallel(y, 4);
+	return output[0];
 }
 
-template<int J>
-void setImages(ImageParam (&ipArray)[J], Image<float> (&images)[J])
+// Sets an array of ImageParams, with offset such that ipArray[i] <- images[(i + offset) % P];
+template<int P>
+void setImages(ImageParam(&ipArray)[P], Image<float>(&images)[P], int offset = 0)
 {
-    for (int i = 0; i < J; i++)
-        ipArray[i].set(images[i]);
+	for (int i = 0; i < P; i++)
+		ipArray[i].set(images[(i + offset) % P]);
+}
+
+int main_webcam()
+{
+	// Number of pyramid levels
+	const int J = 8;
+	// Number of entries in circular buffer.
+	const int P = 5;
+	const float alphaValues[J] = { 0, 0, 4, 7, 8, 9, 10, 10 };
+
+	cv::VideoCapture cap(0);
+	if (!cap.isOpened())
+	{
+		cerr << "Cannot access webcam." << endl;
+		return -1;
+	}
+
+	if (WIDTH != (int)cap.get(CV_CAP_PROP_FRAME_WIDTH) || HEIGHT != (int)cap.get(CV_CAP_PROP_FRAME_HEIGHT))
+	{
+		cerr << "Width and height are wrong." << endl;
+		return -1;
+	}
+
+	// Input image param.
+	ImageParam input(Float(32), 3, "input");
+
+	// Ciruclar buffer image params (x, y). [0] is most recent, [4] is least recent.
+	ImageParam bufferInput[P];
+	for (int i = 0; i < P; i++)
+		bufferInput[i] = ImageParam(Float(32), 2);
+	ImageParam temporalProcessOutput[P];
+	for (int i = 0; i < P; i++)
+		temporalProcessOutput[i] = ImageParam(Float(32), 2);
+	// Image params for Laplacian reconstruction, which takes in an image param array.
+	ImageParam ipArray[J];
+	for (int i = 0; i < J; i++)
+		ipArray[i] = ImageParam(Float(32), 2);
+	Halide::Param<float> alpha;
+
+	// Reconstruction function.
+	Func lReconstruct = reconstruct(ipArray);
+
+	// Algorithm
+	Func clamped = lambda(x, y, c, input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c));
+	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
+	array<Func, J> gPyramid = gaussianPyramid<J>(grey);
+	array<Func, J> lPyramid = laplacianPyramid<J>(gPyramid);
+	Func temporalProcess;
+	temporalProcess(x, y) = 1.1430f * temporalProcessOutput[2](x, y) - 0.4128f * temporalProcessOutput[4](x, y)
+		+ 0.6389f * bufferInput[0](x, y) - 1.2779f * bufferInput[2](x, y)
+		+ 0.6389f * bufferInput[4](x, y);
+	Func outputProcess;
+	outputProcess(x, y) = bufferInput[4](x, y) + alpha * temporalProcessOutput[0](x, y);
+
+	// Reconstruction with color.
+	Func reconstruction;
+	reconstruction(x, y, c) = clamp(lReconstruct(x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
+
+	// Scheduling
+	Var xi, yi;
+	reconstruction.tile(x, y, xi, yi, 160, 24).vectorize(xi, 4).parallel(y);
+	lReconstruct.compute_root().vectorize(x, 4).parallel(y, 4);
+	grey.compute_root().vectorize(x, 4).parallel(y, 4);
+	for (int j = 1; j < 7; j++)
+	{
+		gPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
+	}
+	for (int j = 7; j < J; j++)
+	{
+		gPyramid[j].compute_root();
+	}
+
+	Mat frame;
+	Mat outmat(HEIGHT, WIDTH, CV_8UC3, Scalar(0));
+	Image<float> pyramidBuffer[P][J];
+	Image<float> outputBuffer[P][J];
+	for (int j = 0, w = WIDTH, h = HEIGHT; j < J; j++, w /= 2, h /= 2)
+		for (int i = 0; i < P; i++)
+			outputBuffer[i][j] = Image<float>(w, h);
+	Image<float> outPyramid[J];
+	for (int j = 0, w = WIDTH, h = HEIGHT; j < J; j++, w /= 2, h /= 2)
+		outPyramid[j] = Image<float>(w, h);
+	cap >> frame;	// Read one frame to initialize webcam.
+	namedWindow("Out");
+	double timeSum = 0;
+	int frameCounter = -10;
+	for (int i = 0;; i++, frameCounter++)
+	{
+		cap >> frame;
+		double t = printTiming([&] {
+			auto im = toImage_reorder(frame);
+			input.set(im);
+			for (int j = 0, w = WIDTH, h = HEIGHT; j < J; j++, w /= 2, h /= 2)
+			{
+				pyramidBuffer[i % P][j] = lPyramid[j].realize(w, h);
+				if (alphaValues[j] == 0.0f || i < P - 1)
+				{
+					outPyramid[j] = pyramidBuffer[i % P][j];
+				}
+				else
+				{
+					for (int p = 0; p < P; p++)
+					{
+						bufferInput[p].set(pyramidBuffer[(i - p) % P][j]);
+						temporalProcessOutput[p].set(outputBuffer[(i - p) % P][j]);
+					}
+					outputBuffer[i % P][j] = temporalProcess.realize(w, h);
+					temporalProcessOutput[0].set(outputBuffer[i % P][j]);
+					alpha.set(alphaValues[j]);
+					outPyramid[j] = outputProcess.realize(w, h);
+				}
+			}
+
+			setImages(ipArray, outPyramid);
+			Image<float> out = reconstruction.realize(WIDTH, HEIGHT, CHANNELS);
+			toMat_reordered(out, outmat);
+		}, "Processing... ");
+
+		imshow("Out", outmat);
+		if (waitKey(30) >= 0)
+			break;
+
+		if (frameCounter >= 0)
+		{
+			timeSum += t;
+			cout << "(" << (frameCounter + 1) / timeSum << " FPS)" << endl;
+		}
+	}
+	cout << "\nAverage FPS: " << frameCounter / timeSum << endl
+		<< "Number of frames: " << frameCounter << endl;
+	return 0;
 }
 
 int main()
 {
-    // Size of circular buffer
-    const int P = 5;
-    // Number of pyramid levels
-    const int J = 8;
-    // The multipliers for each pyramid level.
-    const float alpha[J] = { 0, 0, 5, 5, 5, 5, 5, 5 };
-
-    // Circular buffer to hold temporally processed pyramid.
-    Image<float> processed[P][J];
-    // Circular buffer to hold pyramid after processing.
-    Image<float> pyramidBuffer[P][J];
-    Image<float> outBuffer[P][J];
-
-    ImageParam ipArray[J];
-    for (int i = 0; i < J; i++)
-        ipArray[i] = ImageParam(Float(32), 2);
-    Func lReconstruct = reconstruct(ipArray);
-    // Takes a 16-bit input
-    ImageParam input(Float(32), 3);
-
-    cv::VideoCapture capture(0);
-    if (!capture.isOpened())
-    {
-        cerr << "Error when reading video file" << endl;
-        return -1;
-    }
-    int width = capture.get(CV_CAP_PROP_FRAME_WIDTH);
-    int height = capture.get(CV_CAP_PROP_FRAME_HEIGHT);
-    int channels = 3;
-
-    // Set a boundary condition
-    Func clamped;
-    clamped(x, y, c) = input(clamp(x, 0, width-1), clamp(y, 0, height-1), c);
-
-    // Get the luminance channel
-    Func gray;
-    gray(x, y) = 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2);
-
-    // Make the Gaussian pyramid.
-    Func gPyramid[J];
-    gPyramid[0](x, y) = gray(x, y);
-    for (int j = 1; j < J; j++) {
-        gPyramid[j](x, y) = downsample(gPyramid[j-1])(x, y);
-    }
-
-    // Get its laplacian pyramid
-    Func lPyramid[J];
-    lPyramid[J-1](x, y) = gPyramid[J-1](x, y);
-    for (int j = J-2; j >= 0; j--) {
-        lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(gPyramid[j+1])(x, y);
-    }
-
-    Func reconstruction;
-    reconstruction(x, y, c) = clamp(lReconstruct(x, y) * clamped(x, y, c) / (0.01f + gray(x, y)), 0.0f, 1.0f);
-
-    // Scheduling
-    Var xo, yo, xi, yi;
-    gray.compute_root().split(y, y, yi, 4).parallel(y).vectorize(x, 4);
-    for (int j = 0; j < 4; j++)
-    {
-        if (j > 0) gPyramid[j].compute_root().split(y, y, yi, 4).parallel(y).vectorize(x, 4);
-    }
-    for (int j = 4; j < J; j++)
-    {
-        gPyramid[j].compute_root();
-    }
-
-    Mat frame;
-    Mat outMat;
-    cv::namedWindow("Out");
-    for (int i = 0; i < 10000; i++)
-    {
-        capture >> frame;
-        Image<float> inputIm;
-        Image<float> output;
-        printTiming([&]
-        {
-            inputIm = toImage(frame);
-            input.set(inputIm);
-            // Realize Laplacian pyramid
-            for (int j = 0, w = width, h = height; j < J; j++, w /= 2, h /= 2)
-            {
-                pyramidBuffer[i % P][j] = lPyramid[j].realize(w, h);
-                outBuffer[i % P][j] = Image<float>(w, h);
-                if (i <= 4)
-                    processed[i % P][j] = Image<float>(w, h);
-                if (i >= 4)
-                {
-                    for (int y = 0; y < h; y++)
-                        for (int x = 0; x < w; x++)
-                        {
-                            float result = 1.1430f * processed[(i-2) % P][j](x, y) - 0.4128 * processed[(i-4) % P][j](x, y)
-                                            + 0.6389 * pyramidBuffer[i % P][j](x, y) - 1.2779 * pyramidBuffer[(i-2) % P][j](x, y)
-                                             + 0.6389 * pyramidBuffer[(i-4) % P][j](x, y);
-                            processed[i % P][j](x, y) = result;
-                            outBuffer[i % P][j](x, y) = pyramidBuffer[i % P][j](x, y) + alpha[j] * result;
-                        }
-                }
-            }
-            setImages(ipArray, outBuffer[i % P]);
-            // Reconstruct image from Laplacian pyramid
-            output = reconstruction.realize(width, height, channels);
-            outMat = toMat(output);
-        }, "Processing frame... ");
-        cv::imshow("Out", outMat);
-        cv::waitKey(30);
-    }
+	main_webcam();
 }
