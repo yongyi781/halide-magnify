@@ -697,7 +697,7 @@ int main(int argc, TCHAR* argv[])
 	// Name of the function and the args, then types of the outputs, then dimensionality
 	Halide::Param<int> param;
 	param.set(1);
-	g.define_extern("myExtern", vector < ExternFuncArgument > {param, f}, Int(32), 2);
+	g.define_extern("myExtern", vector<ExternFuncArgument>{param, f}, Int(32), 2);
 
 	h(x, y) = g(x, y);
 
