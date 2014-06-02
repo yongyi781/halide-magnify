@@ -12,6 +12,7 @@
 #include <iostream>
 #include <iomanip>
 #include <limits>
+#include <random>
 #include <Halide.h>
 #include <opencv2/opencv.hpp>
 
