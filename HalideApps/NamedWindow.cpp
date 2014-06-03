@@ -6,6 +6,11 @@ NamedWindow::NamedWindow(std::string name, int flags) : name(name)
 	cv::namedWindow(name, flags);
 }
 
+void NamedWindow::resize(int width, int height)
+{
+	cv::resizeWindow(name, width, height);
+}
+
 void NamedWindow::showImage(const Halide::Image<float>& im)
 {
 	switch (im.dimensions())
@@ -19,6 +24,11 @@ void NamedWindow::showImage(const Halide::Image<float>& im)
 	default:
 		throw std::exception("Image must be either 2- or 3-dimensional.");
 	}
+}
+
+void NamedWindow::close()
+{
+	cv::destroyWindow(name);
 }
 
 void NamedWindow::showImage3D(const Halide::Image<float>& im)

@@ -5,7 +5,6 @@
 #include "WebcamApp.h"
 #include "NamedWindow.h"
 
-using namespace std;
 using namespace Halide;
 
 #pragma region Declarations
@@ -33,12 +32,12 @@ double timing(F0 f, int iterations = 1)
 
 // Prints and returns timing in milliseconds
 template<typename F0>
-double printTiming(F0 f, string message = "", int iterations = 1)
+double printTiming(F0 f, std::string message = "", int iterations = 1)
 {
 	if (!message.empty())
-		cout << message << flush;
+		std::cout << message << flush;
 	double t = timing(f, iterations);
-	cout << t << " ms" << endl;
+	std::cout << t << " ms" << std::endl;
 	return t;
 }
 
@@ -59,6 +58,7 @@ Func downsample(F f)
 	downx(x, y, _) = (f(2 * x - 1, y, _) + 3.0f * (f(2 * x, y, _) + f(2 * x + 1, y, _)) + f(2 * x + 2, y, _)) / 8.0f;
 	downy(x, y, _) = (downx(x, 2 * y - 1, _) + 3.0f * (downx(x, 2 * y, _) + downx(x, 2 * y + 1, _)) + downx(x, 2 * y + 2, _)) / 8.0f;
 
+	downx.compute_root();
 	return downy;
 }
 
@@ -71,6 +71,7 @@ Func upsample(F f)
 	upx(x, y, _) = 0.25f * f((x / 2) - 1 + 2 * (x % 2), y, _) + 0.75f * f(x / 2, y, _);
 	upy(x, y, _) = 0.25f * upx(x, (y / 2) - 1 + 2 * (y % 2), _) + 0.75f * upx(x, y / 2, _);
 
+	upx.compute_root();
 	return upy;
 }
 
@@ -174,44 +175,11 @@ cv::Mat toMat_reordered(const Image<float>& im)
 	return mat;
 }
 
-#pragma region Externs
-
-map<int, Image<float>> pyramid; // global result
-
-extern "C" __declspec(dllexport) int copyPyramidLevel(int level, buffer_t *in, buffer_t* out)
-{
-	if (!pyramid.count(level))
-		pyramid[level] = Image<float>(640, 480); // allocate on first attempt to copy data from this level
-
-	if (in->host == nullptr)
-	{
-		// Bounds inference mode, I guess
-		for (int i = 0; i < 2; i++)
-		{
-			in->min[i] = out->min[i];
-			in->extent[i] = out->extent[i];
-		}
-	}
-	else
-	{
-		// memcpy data from in into pyramid[level] buffer at right location
-		int32_t min = in->min[0] * in->stride[0] + in->min[1] * in->stride[1];
-		uint8_t* outData = (uint8_t*)pyramid[level].data() + min;
-		uint8_t* inData = in->host + min;
-		int32_t extent = in->extent[0] * in->stride[0] + in->extent[1] * in->stride[1];
-		memcpy(outData, inData, extent);
-		memcpy(out->host + min, inData, extent);
-	}
-	return 0;
-}
-
-#pragma endregion
-
 // Returns Gaussian pyramid of an image.
 template<int J>
-array<Func, J> gaussianPyramid(Func in)
+std::array<Func, J> gaussianPyramid(Func in)
 {
-	array<Func, J> gPyramid;
+	std::array<Func, J> gPyramid;
 	gPyramid[0](x, y, _) = in(x, y, _);
 	for (int j = 1; j < J; j++)
 		gPyramid[j](x, y, _) = downsample(gPyramid[j - 1])(x, y, _);
@@ -220,9 +188,9 @@ array<Func, J> gaussianPyramid(Func in)
 
 // Returns Laplacian pyramid of a Gaussian pyramid.
 template<typename F, int J>
-array<Func, J> laplacianPyramid(array<F, J> gPyramid)
+std::array<Func, J> laplacianPyramid(std::array<F, J> gPyramid)
 {
-	array<Func, J> lPyramid;
+	std::array<Func, J> lPyramid;
 	lPyramid[J - 1](x, y, _) = gPyramid[J - 1](x, y, _);
 	for (int j = J - 2; j >= 0; j--)
 		lPyramid[j](x, y, _) = gPyramid[j](x, y, _) - upsample(gPyramid[j + 1])(x, y, _);
@@ -231,7 +199,7 @@ array<Func, J> laplacianPyramid(array<F, J> gPyramid)
 
 // Returns Gaussian pyramid of an input image, as an image.
 template<int J>
-array<Image<float>, J> gaussianPyramidImages(const Image<float>& in)
+std::array<Image<float>, J> gaussianPyramidImages(const Image<float>& in)
 {
 	static ImageParam prevPyramidInput(Float(32), 2);
 	static Func prevPyramidInputClamped;
@@ -243,7 +211,7 @@ array<Image<float>, J> gaussianPyramidImages(const Image<float>& in)
 		pyramidLevel(x, y) = downsample(prevPyramidInputClamped)(x, y);
 	}
 
-	array<Image<float>, 8> gPyramid;
+	std::array<Image<float>, 8> gPyramid;
 	gPyramid[0] = in;
 	for (int j = 1, w = in.width() / 2, h = in.height() / 2; j < J; j++, w /= 2, h /= 2)
 	{
@@ -252,21 +220,6 @@ array<Image<float>, J> gaussianPyramidImages(const Image<float>& in)
 	}
 
 	return gPyramid;
-}
-
-// Pyramid stored in pyramid.
-template<int J>
-void gaussianPyramidExtern(const Func in)
-{
-	Func pyramidLevel[J];
-	Func copyLevel[J];
-	pyramidLevel[0] = in;
-	for (int j = 0; j < J; j++)
-	{
-		if (j > 0)
-			pyramidLevel[j](x, y) = downsample(copyLevel[j])(x, y);
-		copyLevel[j].define_extern("copyPyramidLevel", vector < ExternFuncArgument > {level, pyramidLevel[j]}, Int(32), 2);
-	}
 }
 
 // Reconstructs image from Laplacian pyramid
@@ -295,7 +248,7 @@ void setImages(ImageParam(&ipArray)[P], Image<float>(&images)[P], int offset = 0
 
 // Sets an array of ImageParams, with offset such that ipArray[i] <- images[(i + offset) % P];
 template<int P>
-void setImages(array<ImageParam, P>& ipArray, const array<Image<float>, P>& images, int offset = 0)
+void setImages(std::array<ImageParam, P>& ipArray, const std::array<Image<float>, P>& images, int offset = 0)
 {
 	for (int i = 0; i < P; i++)
 		ipArray[i].set(images[(i + offset) % P]);
@@ -334,8 +287,8 @@ int main_v1()
 	// Algorithm
 	Func clamped = lambda(x, y, c, input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c));
 	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
-	array<Func, J> gPyramid = gaussianPyramid<J>(grey);
-	array<Func, J> lPyramid = laplacianPyramid(gPyramid);
+	std::array<Func, J> gPyramid = gaussianPyramid<J>(grey);
+	std::array<Func, J> lPyramid = laplacianPyramid(gPyramid);
 	Func temporalProcess;
 	temporalProcess(x, y) = 1.1430f * temporalProcessOutput[2](x, y) - 0.4128f * temporalProcessOutput[4](x, y)
 		+ 0.6389f * bufferInput[0](x, y) - 1.2779f * bufferInput[2](x, y)
@@ -410,11 +363,11 @@ int main_v1()
 		if (frameCounter >= 0)
 		{
 			timeSum += diff / 1000.0;
-			cout << "(" << (frameCounter + 1) / timeSum << " FPS)" << endl;
+			std::cout << "(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
 		}
 	}
-	cout << "\nAverage FPS: " << frameCounter / timeSum << endl
-		<< "Number of frames: " << frameCounter << endl;
+	std::cout << "\nAverage FPS: " << frameCounter / timeSum << std::endl
+		<< "Number of frames: " << frameCounter << std::endl;
 	return 0;
 }
 
@@ -430,13 +383,13 @@ int main_v2()
 	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
 
 	// Pyramids
-	array<ImageParam, J> gPyramidInput;
+	std::array<ImageParam, J> gPyramidInput;
 	for (int j = 0; j < J; j++)
 		gPyramidInput[j] = ImageParam(Float(32), 2);
-	array<Func, J> gPyramidInputClamped;
+	std::array<Func, J> gPyramidInputClamped;
 	for (int j = 0; j < J; j++)
 		gPyramidInputClamped[j] = clipToEdges(gPyramidInput[j]);
-	array<Func, J> lPyramid = laplacianPyramid(gPyramidInputClamped);
+	std::array<Func, J> lPyramid = laplacianPyramid(gPyramidInputClamped);
 
 	// Ciruclar buffer image params (x, y). [0] is most recent, [4] is least recent.
 	ImageParam bufferInput[P];
@@ -522,18 +475,18 @@ int main_v2()
 		// --- end timing ---
 		double diff = currentTime() - t;
 		window.showImage(out);
-		cout << diff << " ms";
+		std::cout << diff << " ms";
 		if (cv::waitKey(30) >= 0)
 			break;
 
 		if (frameCounter >= 0)
 		{
 			timeSum += diff / 1000.0;
-			cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << endl;
+			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
 		}
 		else
 		{
-			cout << endl;
+			std::cout << std::endl;
 		}
 	}
 
@@ -541,10 +494,10 @@ int main_v2()
 }
 
 // Number of pyramid levels
-const int J = 8;
+const int PYRAMID_LEVELS = 5;
 // Size of circular buffer
-const int P = 5;
-array<array<Image<float>, J>, P> pyramidBuffer;
+const int CIRCBUFFER_SIZE = 5;
+std::array<std::array<Image<float>, PYRAMID_LEVELS>, CIRCBUFFER_SIZE> pyramidBuffer;
 
 // Extern function to copy data to an external pointer.
 extern "C" __declspec(dllexport) int copyFloat32(float* data, buffer_t *in, buffer_t *out)
@@ -578,7 +531,7 @@ extern "C" __declspec(dllexport) int copyFloat32(float* data, buffer_t *in, buff
 // Full algorithm with one pipeline.
 int main_v3()
 {
-	const float alphaValues[J] = { 0, 0, 4, 7, 8, 9, 10, 10 };
+	const float alphaValues[] = { 0, 0, 4, 7, 8, 9, 10, 10 };
 
 	ImageParam input(Float(32), 3, "input");
 	// clamped(x, y, c)
@@ -609,18 +562,79 @@ int main_v3()
 	return 0;
 }
 
-map<int, Image<float>> stuff;
-
 int main(int argc, TCHAR* argv[])
 {
-	cv::Mat m = cv::imread("C:\\Users\\Yongyi\\Pictures\\Temporary Screenshots\\9h3.jpg");
-	if (m.empty())
-		cerr << "Error." << endl;
-	else
+	WebcamApp app;
+	Halide::ImageParam input(Float(32), 3);
+	// Initialize pyramid buffer
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
+		for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+			pyramidBuffer[p][j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j));
+
+	Func clamped("clamped"); clamped(x, y, c) = input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c);
+	Func grey("grey"); grey(x, y) = 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2);
+
+	// Gaussian pyramid
+	Func gPyramid[PYRAMID_LEVELS];
+	gPyramid[0] = Func("gPyramid0");
+	gPyramid[0](x, y) = grey(x, y);
+	for (int j = 1; j < PYRAMID_LEVELS; j++)
 	{
-		Image<float> im = toImage_reorder(m);
-		NamedWindow window("Test");
-		window.showImage(im);
+		gPyramid[j] = Func("gPyramid" + std::to_string(j));
+		gPyramid[j](x, y) = downsample(gPyramid[j - 1])(x, y);
+	}
+
+	// Laplacian pyramid
+	Func lPyramid[PYRAMID_LEVELS];
+	lPyramid[PYRAMID_LEVELS - 1] = Func("lPyramid" + std::to_string(PYRAMID_LEVELS - 1));
+	lPyramid[PYRAMID_LEVELS - 1](x, y) = gPyramid[PYRAMID_LEVELS - 1](x, y);
+	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
+	{
+		lPyramid[j] = Func("lPyramid" + std::to_string(j));
+		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(gPyramid[j + 1])(x, y);
+	}
+
+	// Copy to pyramid buffer (TODO: What about P?)
+	Func copyToBuffer[PYRAMID_LEVELS];
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
+	{
+		Param<float*> dataParam;
+		dataParam.set(pyramidBuffer[0][j].data());
+		copyToBuffer[j] = Func("copyToBuffer" + std::to_string(j));
+		copyToBuffer[j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { dataParam, lPyramid[j] }, Float(32), 2);
+	}
+
+	// Schedule and compile
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
+	{
+		lPyramid[j].compute_root();
+
+		gPyramid[j].compile_jit();
+		lPyramid[j].compile_jit();
+		copyToBuffer[j].compile_jit();
+	}
+
+	// Grab 5 images
+	Image<float> frames[CIRCBUFFER_SIZE];
+	for (int i = 0; i < CIRCBUFFER_SIZE; i++)
+		frames[i] = app.readFrame();
+	input.set(frames[0]);
+
+	NamedWindow gPyramidResultsWindow("gPyramid Results", cv::WINDOW_NORMAL);
+	gPyramidResultsWindow.resize(640, 480);
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
+	{
+		gPyramidResultsWindow.showImage(gPyramid[j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j)));
+		cv::waitKey();
+	}
+	gPyramidResultsWindow.close();
+
+	NamedWindow copyToBufferResultsWindow("copyToBuffer Results", cv::WINDOW_NORMAL);
+	copyToBufferResultsWindow.resize(640, 480);
+	for (int i = PYRAMID_LEVELS - 1; i >= 0; i--)
+	{
+		copyToBuffer[i].realize(scaleSize(app.width(), i), scaleSize(app.height(), i));
+		copyToBufferResultsWindow.showImage(pyramidBuffer[0][i]);
 		cv::waitKey();
 	}
 
@@ -661,18 +675,18 @@ int main(int argc, TCHAR* argv[])
 	//	for (int y = 0; y < scaleSize(SIZE, LEVEL); y++)
 	//	{
 	//		for (int x = 0; x < scaleSize(SIZE, LEVEL); x++)
-	//			cout << result[LEVEL](x, y) << " ";
-	//		cout << "\n";
+	//			std::cout << result[LEVEL](x, y) << " ";
+	//		std::cout << "\n";
 	//	}
-	//	cout << endl;
+	//	std::cout << std::endl;
 
 	//	for (int y = 0; y < scaleSize(SIZE, LEVEL); y++)
 	//	{
 	//		for (int x = 0; x < scaleSize(SIZE, LEVEL); x++)
-	//			cout << stuff[LEVEL](x, y) << " ";
-	//		cout << "\n";
+	//			std::cout << stuff[LEVEL](x, y) << " ";
+	//		std::cout << "\n";
 	//	}
-	//	cout << "\n\n";
+	//	std::cout << "\n\n";
 	//}
 
 	//return 0;

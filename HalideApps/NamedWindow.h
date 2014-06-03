@@ -3,7 +3,9 @@ class NamedWindow
 {
 public:
 	NamedWindow(std::string name = "Window", int flags = cv::WINDOW_AUTOSIZE);
+	void resize(int width, int height);
 	void showImage(const Halide::Image<float>& im);
+	void close();
 
 private:
 	void showImage3D(const Halide::Image<float>& im);

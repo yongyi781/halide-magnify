@@ -3,7 +3,7 @@
 class WebcamApp
 {
 public:
-	WebcamApp(std::string name = "Webcam app");
+	WebcamApp();
 
 	int width() { return (int)cap.get(CV_CAP_PROP_FRAME_WIDTH); }
 	int height() { return (int)cap.get(CV_CAP_PROP_FRAME_HEIGHT); }
@@ -12,7 +12,5 @@ public:
 	Halide::Image<float> readFrame();
 
 private:
-
-	std::string name;
 	cv::VideoCapture cap;
 };

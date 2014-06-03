@@ -3,11 +3,10 @@
 
 using namespace Halide;
 
-WebcamApp::WebcamApp(std::string name) : name(name), cap(0)
+WebcamApp::WebcamApp() : cap(0)
 {
 	if (!cap.isOpened())
 		throw std::exception("Cannot open webcam.");
-	cv::namedWindow(name);
 }
 
 Image<float> WebcamApp::readFrame()
