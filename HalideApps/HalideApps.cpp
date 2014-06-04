@@ -279,7 +279,7 @@ int main_v1()
 	ImageParam ipArray[J];
 	for (int i = 0; i < J; i++)
 		ipArray[i] = ImageParam(Float(32), 2);
-	Halide::Param<float> alpha;
+	Param<float> alpha;
 
 	// Reconstruction function.
 	Func lReconstruct = reconstruct(ipArray);
@@ -403,7 +403,7 @@ int main_v2()
 	ImageParam ipArray[J];
 	for (int i = 0; i < J; i++)
 		ipArray[i] = ImageParam(Float(32), 2);
-	Halide::Param<float> alpha;
+	Param<float> alpha;
 
 	// Reconstruction function.
 	Func lReconstruct = reconstruct(ipArray);
@@ -497,7 +497,9 @@ int main_v2()
 const int PYRAMID_LEVELS = 5;
 // Size of circular buffer
 const int CIRCBUFFER_SIZE = 5;
+
 std::array<std::array<Image<float>, PYRAMID_LEVELS>, CIRCBUFFER_SIZE> pyramidBuffer;
+std::array<std::array<Image<float>, PYRAMID_LEVELS>, CIRCBUFFER_SIZE> temporalOutBuffer;
 
 // Extern function to copy data to an external pointer.
 extern "C" __declspec(dllexport) int copyFloat32(float* data, buffer_t *in, buffer_t *out)
@@ -512,6 +514,7 @@ extern "C" __declspec(dllexport) int copyFloat32(float* data, buffer_t *in, buff
 	}
 	else
 	{
+		printf("[%d, %d] x [%d, %d]\n", out->min[0], out->min[0] + out->extent[0], out->min[1], out->min[1] + out->extent[1]);
 		float* dst = (float*)out->host;
 		float* src = (float*)in->host;
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
@@ -528,50 +531,34 @@ extern "C" __declspec(dllexport) int copyFloat32(float* data, buffer_t *in, buff
 	return 0;
 }
 
+Func clipToEdges(Image<float> im)
+{
+	return lambda(x, y, _, im(clamp(x, 0, im.width() - 1), clamp(y, 0, im.height() - 1), _));
+}
+
+Func clipToEdges(Func f, int width, int height)
+{
+	return lambda(x, y, _, f(clamp(x, 0, width - 1), clamp(y, 0, height - 1), _));
+}
+
 // Full algorithm with one pipeline.
 int main_v3()
 {
-	const float alphaValues[] = { 0, 0, 4, 7, 8, 9, 10, 10 };
-
-	ImageParam input(Float(32), 3, "input");
-	// clamped(x, y, c)
-	Func clamped = lambda(x, y, c, input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c));
-	// grey(x, y)
-	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
-
-	//// Algorithm
-	//Func temporalProcess;
-	//temporalProcess(x, y) = 1.1430f * temporalProcessOutput[2](x, y) - 0.4128f * temporalProcessOutput[4](x, y)
-	//	+ 0.6389f * bufferInput[0](x, y) - 1.2779f * bufferInput[2](x, y)
-	//	+ 0.6389f * bufferInput[4](x, y);
-	//Func outputProcess;
-	//outputProcess(x, y) = bufferInput[4](x, y) + alpha * temporalProcessOutput[0](x, y);
-
-	//// Reconstruction with color.
-	//Func reconstruction;
-	//reconstruction(x, y, c) = clamp(lReconstruct(x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
-
-	//// Scheduling
-	//Var xi, yi;
-	//reconstruction.tile(x, y, xi, yi, 160, 24).vectorize(xi, 4).parallel(y);
-	//lReconstruct.compute_root().vectorize(x, 4).parallel(y, 4);
-	//grey.compute_root().vectorize(x, 4).parallel(y, 4);
+	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 4, 7, 8 };
 
 	WebcamApp app;
-
-	return 0;
-}
-
-int main(int argc, TCHAR* argv[])
-{
-	WebcamApp app;
-	Halide::ImageParam input(Float(32), 3);
-	// Initialize pyramid buffer
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-		for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	ImageParam input(Float(32), 3);
+	// Initialize pyramid buffers
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		for (int j = 0; j < PYRAMID_LEVELS; j++)
+		{
 			pyramidBuffer[p][j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j));
+			temporalOutBuffer[p][j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j));
+		}
+	}
 
-	Func clamped("clamped"); clamped(x, y, c) = input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c);
+	Func clamped("clamped"); clamped(x, y, c) = clipToEdges(input)(x, y, c);
 	Func grey("grey"); grey(x, y) = 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2);
 
 	// Gaussian pyramid
@@ -595,48 +582,145 @@ int main(int argc, TCHAR* argv[])
 	}
 
 	// Copy to pyramid buffer (TODO: What about P?)
-	Func copyToBuffer[PYRAMID_LEVELS];
+	Func lPyramidWithCopy[PYRAMID_LEVELS];
+	Param<float*> lPyramidCopyTarget[PYRAMID_LEVELS];
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		Param<float*> dataParam;
-		dataParam.set(pyramidBuffer[0][j].data());
-		copyToBuffer[j] = Func("copyToBuffer" + std::to_string(j));
-		copyToBuffer[j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { dataParam, lPyramid[j] }, Float(32), 2);
+		lPyramidWithCopy[j] = Func("lPyramidWithCopy" + std::to_string(j));
+		lPyramidWithCopy[j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { lPyramidCopyTarget[j], lPyramid[j] }, Float(32), 2);
 	}
 
-	// Schedule and compile
+	Func temporalProcess[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		for (int j = 0; j < PYRAMID_LEVELS; j++)
+		{
+			temporalProcess[p][j](x, y) =
+				1.1430f * clipToEdges(temporalOutBuffer[(p - 2 + 5) % 5][j])(x, y)
+				- 0.4128f * clipToEdges(temporalOutBuffer[(p - 4 + 5) % 5][j])(x, y)
+				+ 0.6389f * clipToEdges(pyramidBuffer[p][j])(x, y)
+				- 1.2779f * clipToEdges(pyramidBuffer[(p - 2 + 5) % 5][j])(x, y)
+				+ 0.6389f * clipToEdges(pyramidBuffer[(p - 4 + 5) % 5][j])(x, y);
+		}
+	}
+
+	Func temporalProcessWithCopy[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		for (int j = 0; j < PYRAMID_LEVELS; j++)
+		{
+			Param<float*> dest;
+			dest.set(temporalOutBuffer[p][j].data());
+			temporalProcessWithCopy[p][j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { dest, temporalProcess[p][j] }, Float(32), 2);
+		}
+	}
+
+	Func outLPyramid[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		for (int j = 0; j < PYRAMID_LEVELS; j++)
+		{
+			outLPyramid[p][j](x, y) = lPyramidWithCopy[j](x, y) + alphaValues[j] * temporalProcessWithCopy[p][j](x, y);
+		}
+	}
+
+	Func outGPyramid[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		outGPyramid[p][PYRAMID_LEVELS - 1] = outLPyramid[p][PYRAMID_LEVELS - 1];
+		for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
+		{
+			outGPyramid[p][j](x, y) = upsample(clipToEdges(outGPyramid[p][j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y) + outLPyramid[p][j](x, y);
+		}
+	}
+
+	Func output[CIRCBUFFER_SIZE];
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		output[p] = Func("output" + std::to_string(p));
+		output[p](x, y) = clamp(outGPyramid[p][0](x, y), 0.0f, 1.0f);
+	}
+
+	// Schedule
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		lPyramid[j].compute_root();
-
-		gPyramid[j].compile_jit();
-		lPyramid[j].compile_jit();
-		copyToBuffer[j].compile_jit();
+		lPyramidWithCopy[j].compute_root();
+		for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+		{
+			outLPyramid[p][j].compute_root();
+			outGPyramid[p][j].compute_root();
+			temporalProcess[p][j].compute_root();
+		}
 	}
 
-	// Grab 5 images
-	Image<float> frames[CIRCBUFFER_SIZE];
-	for (int i = 0; i < CIRCBUFFER_SIZE; i++)
+	// Compile
+	std::cout << "Compiling...";
+	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	{
+		outGPyramid[p][3].compile_jit();
+	}
+	std::cout << "\nDone compiling!\n";
+
+	// Grab N images
+	const int N = 10;
+	Image<float> frames[N];
+	for (int i = 0; i < N; i++)
 		frames[i] = app.readFrame();
-	input.set(frames[0]);
 
-	NamedWindow gPyramidResultsWindow("gPyramid Results", cv::WINDOW_NORMAL);
-	gPyramidResultsWindow.resize(640, 480);
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
+	NamedWindow window("Results", cv::WINDOW_NORMAL);
+	window.resize(640, 480);
+	for (int i = 0; i < N; i++)
 	{
-		gPyramidResultsWindow.showImage(gPyramid[j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j)));
-		cv::waitKey();
-	}
-	gPyramidResultsWindow.close();
+		std::cout << "Showing image " << i << std::endl;
+		int p = i % CIRCBUFFER_SIZE;
+		for (int j = 0; j < PYRAMID_LEVELS; j++)
+		{
+			lPyramidCopyTarget[j].set(pyramidBuffer[p][j].data());
+		}
+		input.set(frames[i]);
 
-	NamedWindow copyToBufferResultsWindow("copyToBuffer Results", cv::WINDOW_NORMAL);
-	copyToBufferResultsWindow.resize(640, 480);
-	for (int i = PYRAMID_LEVELS - 1; i >= 0; i--)
-	{
-		copyToBuffer[i].realize(scaleSize(app.width(), i), scaleSize(app.height(), i));
-		copyToBufferResultsWindow.showImage(pyramidBuffer[0][i]);
-		cv::waitKey();
+		if (i < CIRCBUFFER_SIZE - 1)
+		{
+			for (int j = 0; j < PYRAMID_LEVELS; j++)
+			{
+				lPyramidWithCopy[j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j));
+			}
+		}
+		else
+		{
+			Image<float> out = output[p].realize(app.width(), app.height());
+			window.showImage(out);
+			cv::waitKey();
+		}
 	}
+	window.close();
+
+	return 0;
+}
+
+int main(int argc, TCHAR* argv[])
+{
+	main_v3();
+	return 0;
+	Func f("f");
+	Var x("x"), y("y");
+	RDom r1(0, 10, "r1"), r2(0, 10, "r2"), r3(0, 10, "r3");
+
+	f(x, y) = x + y;
+	f(r1, y) += r1;
+	Image<int> result = f.realize(10, 10);
+	for (int i = 0; i < 10; i++)
+	{
+		for (int j = 0; j < 10; j++)
+		{
+			std::cout << result(i, j) << ' ';
+		}
+
+		std::cout << '\n';
+	}
+
+	std::cout << evaluate<float>(random_float()) << std::endl;
 
 	//const int J = 6;
 	//const int SIZE = 80;
@@ -651,7 +735,7 @@ int main(int argc, TCHAR* argv[])
 	//Func g[J], h[J];
 	//for (int j = 0; j < J; j++)
 	//{
-	//	Halide::Param<float*> param;
+	//	Param<float*> param;
 	//	param.set(stuff[j].data());
 	//	g[j].define_extern("copyFloat32", vector < ExternFuncArgument > {param, f}, Float(32), 2);
 	//	h[j](x, y) = g[j](x, y);
