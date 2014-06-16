@@ -109,6 +109,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Users\Yongyi\Documents\GitHub\Halide\build\lib\RelWithDebInfo;$(OPENCV_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Halide.lib;opencv_core248.lib;opencv_imgproc248.lib;opencv_highgui248.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <StackReserveSize>16777216</StackReserveSize>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "C:\Users\Yongyi\Documents\GitHub\Halide\build\bin\RelWithDebInfo\Halide.dll" "$(OutDir)"</Command>
@@ -152,6 +153,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>C:\Users\Yongyi\Documents\GitHub\Halide\build\lib\RelWithDebInfo;$(OPENCV_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>Halide.lib;opencv_core248.lib;opencv_imgproc248.lib;opencv_highgui248.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <StackReserveSize>16777216</StackReserveSize>
     </Link>
     <PostBuildEvent>
       <Command>xcopy /Y "C:\Users\Yongyi\Documents\GitHub\Halide\build\bin\RelWithDebInfo\Halide.dll" "$(OutDir)"</Command>
