@@ -494,12 +494,12 @@ int main_v2()
 }
 
 // Number of pyramid levels
-const int PYRAMID_LEVELS = 7;
+const int PYRAMID_LEVELS = 8;
 // Size of circular buffer
 const int CIRCBUFFER_SIZE = 5;
 
-std::array<std::array<Image<float>, PYRAMID_LEVELS>, CIRCBUFFER_SIZE> pyramidBuffer;
-std::array<std::array<Image<float>, PYRAMID_LEVELS>, CIRCBUFFER_SIZE> temporalOutBuffer;
+std::array<Image<float>, PYRAMID_LEVELS> pyramidBuffer;
+std::array<Image<float>, PYRAMID_LEVELS> temporalOutBuffer;
 
 // Extern function to copy data to an external pointer.
 extern "C" __declspec(dllexport) int copyFloat32(int p, int j, bool copyToTemporalOut, buffer_t *in, buffer_t *out)
@@ -514,18 +514,16 @@ extern "C" __declspec(dllexport) int copyFloat32(int p, int j, bool copyToTempor
 	}
 	else
 	{
-		float* dst = (float*)out->host;
 		float* src = (float*)in->host;
-		float* data = copyToTemporalOut ? temporalOutBuffer[p][j].data() : pyramidBuffer[p][j].data();
+		float* dst = (float*)out->host;
+		float* data = copyToTemporalOut ? temporalOutBuffer[j].data() + p * temporalOutBuffer[j].stride(2) : pyramidBuffer[j].data() + p * pyramidBuffer[j].stride(2);
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
 		{
-			float* dstLine = dst + (y - out->min[1]) * out->stride[1];
 			float* srcLine = src + (y - in->min[1]) * in->stride[1];
+			float* dstLine = dst + (y - out->min[1]) * out->stride[1];
 			float* levelLine = data + (y - in->min[1]) * in->stride[1];
-			for (int x = out->min[0]; x < out->min[0] + out->extent[0]; x++) {
-				dstLine[x - out->min[0]] = srcLine[x - in->min[0]];
-				levelLine[x - in->min[0]] = srcLine[x - in->min[0]];
-			}
+			memcpy(dstLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
+			memcpy(levelLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
 		}
 	}
 	return 0;
@@ -544,7 +542,8 @@ Func clipToEdges(Func f, int width, int height)
 // Full algorithm with one pipeline.
 int main_v3()
 {
-	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 4, 4, 4, 4, 7 };
+	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 4, 4, 4, 4, 4, 4 };
+	Param<int> pParam;
 
 	WebcamApp app;
 	ImageParam input(Float(32), 3);
@@ -553,8 +552,8 @@ int main_v3()
 	{
 		for (int j = 0; j < PYRAMID_LEVELS; j++)
 		{
-			pyramidBuffer[p][j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j));
-			temporalOutBuffer[p][j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j));
+			pyramidBuffer[j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE);
+			temporalOutBuffer[j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE);
 		}
 	}
 
@@ -581,132 +580,104 @@ int main_v3()
 		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(gPyramid[j + 1])(x, y);
 	}
 
-	// Copy to pyramid buffer (TODO: What about P?)
-	Func lPyramidWithCopy[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	// Copy to pyramid buffer
+	Func lPyramidWithCopy[PYRAMID_LEVELS];
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		for (int j = 0; j < PYRAMID_LEVELS; j++)
-		{
-			Param<int> pParam, jParam;
-			Param<bool> copyToTemporalOutput;
-			pParam.set(p);
-			jParam.set(j);
-			copyToTemporalOutput.set(false);
-			lPyramidWithCopy[p][j] = Func("lPyramidWithCopy" + std::to_string(p) + std::to_string(j));
-			lPyramidWithCopy[p][j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { pParam, jParam, copyToTemporalOutput, lPyramid[j] }, Float(32), 2);
-		}
+		Param<int> jParam;
+		Param<bool> copyToTemporalOutput;
+		jParam.set(j);
+		copyToTemporalOutput.set(false);
+		lPyramidWithCopy[j] = Func("lPyramidWithCopy" + std::to_string(j));
+		lPyramidWithCopy[j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { pParam, jParam, copyToTemporalOutput, lPyramid[j] }, Float(32), 2);
 	}
 
-	Func temporalProcess[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	Func temporalProcess[PYRAMID_LEVELS];
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		for (int j = 0; j < PYRAMID_LEVELS; j++)
-		{
-			temporalProcess[p][j] = Func("temporalProcess" + std::to_string(p) + std::to_string(j));
-			temporalProcess[p][j](x, y) =
-				1.1430f * clipToEdges(temporalOutBuffer[(p - 2 + 5) % 5][j])(x, y)
-				- 0.4128f * clipToEdges(temporalOutBuffer[(p - 4 + 5) % 5][j])(x, y)
-				+ 0.6389f * clipToEdges(pyramidBuffer[p][j])(x, y)
-				- 1.2779f * clipToEdges(pyramidBuffer[(p - 2 + 5) % 5][j])(x, y)
-				+ 0.6389f * clipToEdges(pyramidBuffer[(p - 4 + 5) % 5][j])(x, y);
-		}
+		temporalProcess[j] = Func("temporalProcess" + std::to_string(j));
+		temporalProcess[j](x, y) =
+			1.1430f * temporalOutBuffer[j](x, y, (pParam - 2 + 5) % 5)
+			- 0.4128f * temporalOutBuffer[j](x, y, (pParam - 4 + 5) % 5)
+			+ 0.6389f * pyramidBuffer[j](x, y, pParam)
+			- 1.2779f * pyramidBuffer[j](x, y, (pParam - 2 + 5) % 5)
+			+ 0.6389f * pyramidBuffer[j](x, y, (pParam - 4 + 5) % 5);
 	}
 
-	Func temporalProcessWithCopy[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	Func temporalProcessWithCopy[PYRAMID_LEVELS];
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		for (int j = 0; j < PYRAMID_LEVELS; j++)
-		{
-			Param<int> pParam, jParam;
-			Param<bool> copyToTemporalOutput;
-			pParam.set(p);
-			jParam.set(j);
-			copyToTemporalOutput.set(true);
-			temporalProcessWithCopy[p][j] = Func("temporalProcessWithCopy" + std::to_string(p) + std::to_string(j));
-			temporalProcessWithCopy[p][j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { pParam, jParam, copyToTemporalOutput, temporalProcess[p][j] }, Float(32), 2);
-		}
+		Param<int> jParam;
+		Param<bool> copyToTemporalOutput;
+		jParam.set(j);
+		copyToTemporalOutput.set(true);
+		temporalProcessWithCopy[j] = Func("temporalProcessWithCopy" + std::to_string(j));
+		temporalProcessWithCopy[j].define_extern("copyFloat32", std::vector < ExternFuncArgument > { pParam, jParam, copyToTemporalOutput, temporalProcess[j] }, Float(32), 2);
 	}
 
-	Func outLPyramid[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	Func outLPyramid[PYRAMID_LEVELS];
+	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		for (int j = 0; j < PYRAMID_LEVELS; j++)
-		{
-			outLPyramid[p][j] = Func("outLPyramid" + std::to_string(p) + std::to_string(j));
-			outLPyramid[p][j](x, y) = lPyramidWithCopy[p][j](x, y) + alphaValues[j] * temporalProcessWithCopy[p][j](x, y);
-		}
+		outLPyramid[j] = Func("outLPyramid" + std::to_string(j));
+		outLPyramid[j](x, y) = lPyramidWithCopy[j](x, y) + alphaValues[j] * temporalProcessWithCopy[j](x, y);
 	}
 
-	Func outGPyramid[CIRCBUFFER_SIZE][PYRAMID_LEVELS];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
+	Func outGPyramid[PYRAMID_LEVELS];
+	outGPyramid[PYRAMID_LEVELS - 1](x, y) = outLPyramid[PYRAMID_LEVELS - 1](x, y);
+	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
 	{
-		outGPyramid[p][PYRAMID_LEVELS - 1](x, y) = outLPyramid[p][PYRAMID_LEVELS - 1](x, y);
-		for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
-		{
-			outGPyramid[p][j] = Func("outGPyramid" + std::to_string(p) + std::to_string(j));
-			outGPyramid[p][j](x, y) = upsample(clipToEdges(outGPyramid[p][j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y) + outLPyramid[p][j](x, y);
-		}
+		outGPyramid[j] = Func("outGPyramid" + std::to_string(j));
+		outGPyramid[j](x, y) = upsample(clipToEdges(outGPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y) + outLPyramid[j](x, y);
 	}
 
-	Func output[CIRCBUFFER_SIZE];
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
-	{
-		output[p] = Func("output[" + std::to_string(p) + "]");
-		output[p](x, y, c) = clamp(outGPyramid[p][0](x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
-	}
+	Func output("output");
+	output(x, y, c) = clamp(outGPyramid[0](x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
 
 	// Schedule
+	grey.compute_root().vectorize(x, 4).parallel(y, 4);
+
 	Var xi, yi;
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		gPyramid[j].compute_root();
 		lPyramid[j].compute_root();
-		for (int p = 0; p < CIRCBUFFER_SIZE; p++)
-		{
-			lPyramidWithCopy[p][j].compute_root();
-			temporalProcess[p][j].compute_root();
-			temporalProcessWithCopy[p][j].compute_root();
-			outLPyramid[p][j].compute_root();
-		}
+		lPyramidWithCopy[j].compute_root();
+		temporalProcess[j].compute_root();
+		temporalProcessWithCopy[j].compute_root();
+		outLPyramid[j].compute_root();
 	}
 
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
-	{
-		output[p].tile(x, y, xi, yi, 160, 32).vectorize(x, 4).parallel(y, 4);
-	}
+	output.tile(x, y, xi, yi, 4, 4).vectorize(x, 4).parallel(y, 4);
 
 	// Compile
 	std::cout << "Compiling...";
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
-	{
-		std::cout << "Compiling p = " << p << std::endl;
-		output[p].compile_jit();
-	}
+	output.compile_jit();
 	std::cout << "\nDone compiling!\n";
 
 	NamedWindow window("Results", cv::WINDOW_NORMAL);
 	window.resize(640, 480);
 	double timeSum = 0;
 	int frameCounter = -10;
-	for (int i = 0;; i++)
+	for (int i = 0;; i++, frameCounter++)
 	{
 		Image<float> frame = app.readFrame();
-		std::cout << "Showing image " << i << std::endl;
+		std::cout << "Processing image " << i << std::endl;
 		int p = i % CIRCBUFFER_SIZE;
+		pParam.set(p);
 		input.set(frame);
 
 		if (i < CIRCBUFFER_SIZE - 1)
 		{
 			for (int j = 0; j < PYRAMID_LEVELS; j++)
 			{
-				lPyramidWithCopy[p][j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j));
+				lPyramidWithCopy[j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j));
 			}
 		}
 		else
 		{
 			double t = currentTime();
 			// --- timing ---
-			Image<float> out = output[p].realize(app.width(), app.height(), app.channels());
+			Image<float> out = output.realize(app.width(), app.height(), app.channels());
 			// --- end timing ---
 			double diff = currentTime() - t;
 			window.showImage(out);
@@ -735,24 +706,6 @@ int main(int argc, TCHAR* argv[])
 {
 	main_v3();
 	return 0;
-	Func f("f");
-	Var x("x"), y("y");
-	RDom r1(0, 10, "r1"), r2(0, 10, "r2"), r3(0, 10, "r3");
-
-	f(x, y) = x + y;
-	f(r1, y) += r1;
-	Image<int> result = f.realize(10, 10);
-	for (int i = 0; i < 10; i++)
-	{
-		for (int j = 0; j < 10; j++)
-		{
-			std::cout << result(i, j) << ' ';
-		}
-
-		std::cout << '\n';
-	}
-
-	std::cout << evaluate<float>(random_float()) << std::endl;
 
 	//const int J = 6;
 	//const int SIZE = 80;
