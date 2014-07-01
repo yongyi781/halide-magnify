@@ -26,6 +26,11 @@ void NamedWindow::showImage(const Halide::Image<float>& im)
 	}
 }
 
+void NamedWindow::showImage(const cv::Mat& mat)
+{
+	cv::imshow(name, mat);
+}
+
 void NamedWindow::close()
 {
 	cv::destroyWindow(name);
