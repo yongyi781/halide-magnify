@@ -519,14 +519,14 @@ extern "C" __declspec(dllexport) int copyFloat32(int p, int j, bool copyToTempor
 #endif
 		float* src = (float*)in->host;
 		float* dst = (float*)out->host;
-		float* data = copyToTemporalOut ? temporalOutBuffer[j].data() + p * temporalOutBuffer[j].stride(2) : pyramidBuffer[j].data() + p * pyramidBuffer[j].stride(2);
+		float* data = (copyToTemporalOut ? temporalOutBuffer[j].data() + p * temporalOutBuffer[j].stride(2) : pyramidBuffer[j].data() + p * pyramidBuffer[j].stride(2));
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
 		{
 			float* srcLine = src + (y - in->min[1]) * in->stride[1];
 			float* dstLine = dst + (y - out->min[1]) * out->stride[1];
-			float* levelLine = data + (y - in->min[1]) * in->stride[1];
-			memcpy(dstLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
-			memcpy(levelLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
+			float* levelLine = data + y * in->stride[1];
+			memcpy(dstLine + in->min[0], srcLine + out->min[0], sizeof(float) * out->extent[0]);
+			memcpy(levelLine + out->min[0], srcLine + out->min[0], sizeof(float) * out->extent[0]);
 		}
 	}
 	return 0;
@@ -622,7 +622,8 @@ int main_v3()
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		outLPyramid[j] = Func("outLPyramid" + std::to_string(j));
-		outLPyramid[j](x, y) = clipToEdges((Func)(lPyramid[j] + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j])), scaleSize(app.width(), j), scaleSize(app.height(), j))(x, y);
+		outLPyramid[j](x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
+		outLPyramid[j] = clipToEdges(outLPyramid[j], scaleSize(app.width(), j), scaleSize(app.height(), j));
 	}
 
 	Func outGPyramid[PYRAMID_LEVELS];
@@ -637,41 +638,38 @@ int main_v3()
 	output(x, y, c) = clamp(outGPyramid[0](x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
 
 	// Schedule
+	Var xi("xi"), yi("yi");
+
 	grey.compute_root().parallel(y, 4).vectorize(x, 4);
 
-	Var xi, yi;
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		lPyramid[j].compute_root();
 		lPyramidWithCopy[j].compute_root();
-		temporalProcess[j].compute_root();
-		temporalProcessWithCopy[j].compute_root();
-		if (j > 0)
-		{
-			gPyramid[j].compute_root();
-			outGPyramid[j].compute_root();
-		}
 
 		if (j <= 4)
 		{
-			lPyramid[j].parallel(y, 4).vectorize(x, 4);
+			outGPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
+			temporalProcessWithCopy[j].compute_root();
+			temporalProcess[j].compute_root();
+			lPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
 			if (j > 0)
 			{
-				gPyramid[j].parallel(y, 4).vectorize(x, 4);
-				outGPyramid[j].parallel(y, 4).vectorize(x, 4);
+				gPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
 			}
 		}
 		else
 		{
-			lPyramid[j].parallel(y).vectorize(x, 4);
+			outGPyramid[j].compute_root().parallel(y).vectorize(x, 4);
+			temporalProcessWithCopy[j].compute_root();
+			temporalProcess[j].compute_root();
+			lPyramid[j].compute_root().parallel(y).vectorize(x, 4);
 			if (j > 0)
 			{
-				gPyramid[j].parallel(y).vectorize(x, 4);
-				outGPyramid[j].parallel(y).vectorize(x, 4);
+				gPyramid[j].compute_root().parallel(y).vectorize(x, 4);
 			}
 		}
 	}
-
+	
 	output.tile(x, y, xi, yi, 32, 4).parallel(y, 4).vectorize(x, 4);
 
 	// Compile
