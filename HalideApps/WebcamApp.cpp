@@ -11,9 +11,9 @@ WebcamApp::WebcamApp() : cap(0)
 
 Image<float> WebcamApp::readFrame()
 {
-	static Func convert;
+	static Func convert("convertFromMat");
 	static ImageParam ip(UInt(8), 3);
-	static Var x, y, c;
+	static Var x("x"), y("y"), c("c");
 
 	if (!convert.defined())
 	{
