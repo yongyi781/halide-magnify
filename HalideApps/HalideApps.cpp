@@ -560,8 +560,8 @@ int main_v3()
 		}
 	}
 
-	Func clamped("clamped"); clamped(x, y, c) = clipToEdges(input)(x, y, c);
-	Func grey("grey"); grey(x, y) = 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2);
+	Func ugrey("ugrey"); ugrey(x, y) = 0.299f * input(x, y, 0) + 0.587f * input(x, y, 1) + 0.114f * input(x, y, 2);
+	Func grey("grey"); grey(x, y) = ugrey(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1));
 
 	// Gaussian pyramid
 	Func gPyramid[PYRAMID_LEVELS];
@@ -622,8 +622,9 @@ int main_v3()
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		outLPyramid[j] = Func("outLPyramid" + std::to_string(j));
-		outLPyramid[j](x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
-		outLPyramid[j] = clipToEdges(outLPyramid[j], scaleSize(app.width(), j), scaleSize(app.height(), j));
+		Func temp("temp" + std::to_string(j));
+		temp(x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
+		outLPyramid[j](x, y) = clipToEdges(temp, scaleSize(app.width(), j), scaleSize(app.height(), j))(x, y);
 	}
 
 	Func outGPyramid[PYRAMID_LEVELS];
@@ -635,12 +636,13 @@ int main_v3()
 	}
 
 	Func output("output");
-	output(x, y, c) = clamp(outGPyramid[0](x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
+	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (0.001f + grey(x, y)), 0.0f, 1.0f);
 
 	// Schedule
 	Var xi("xi"), yi("yi");
 
-	grey.compute_root().parallel(y, 4).vectorize(x, 4);
+	output.parallel(y, 4).vectorize(x, 4);
+	outGPyramid[0].tile(x, y, xi, yi, 80, 60);
 
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
@@ -669,8 +671,8 @@ int main_v3()
 			}
 		}
 	}
-	
-	output.tile(x, y, xi, yi, 32, 4).parallel(y, 4).vectorize(x, 4);
+
+	ugrey.compute_root().parallel(y, 4).vectorize(x, 4);
 
 	// Compile
 	std::cout << "Compiling...";
@@ -706,8 +708,6 @@ int main_v3()
 			double diff = currentTime() - t;
 			window.showImage(out);
 			std::cout << diff << " ms";
-			if (cv::waitKey(30) >= 0)
-				break;
 
 			if (frameCounter >= 0)
 			{
