@@ -38,7 +38,7 @@ void NamedWindow::close()
 
 void NamedWindow::showImage3D(const Halide::Image<float>& im)
 {
-	static Halide::Func convert;
+	static Halide::Func convert("convertToMat3D");
 	static Halide::ImageParam ip(Halide::Float(32), 3);
 	static Halide::Var x, y, c;
 
@@ -56,7 +56,7 @@ void NamedWindow::showImage3D(const Halide::Image<float>& im)
 
 void NamedWindow::showImage2D(const Halide::Image<float>& im)
 {
-	static Halide::Func convert;
+	static Halide::Func convert("convertToMat2D");
 	static Halide::ImageParam ip(Halide::Float(32), 2);
 	static Halide::Var x, y;
 
