@@ -173,324 +173,6 @@ cv::Mat toMat_reordered(const Image<float>& im)
 	return mat;
 }
 
-// Returns Gaussian pyramid of an image.
-template<int J>
-std::array<Func, J> gaussianPyramid(Func in)
-{
-	std::array<Func, J> gPyramid;
-	gPyramid[0](x, y, _) = in(x, y, _);
-	for (int j = 1; j < J; j++)
-		gPyramid[j](x, y, _) = downsample(gPyramid[j - 1])(x, y, _);
-	return gPyramid;
-}
-
-// Returns Laplacian pyramid of a Gaussian pyramid.
-template<typename F, int J>
-std::array<Func, J> laplacianPyramid(std::array<F, J> gPyramid)
-{
-	std::array<Func, J> lPyramid;
-	lPyramid[J - 1](x, y, _) = gPyramid[J - 1](x, y, _);
-	for (int j = J - 2; j >= 0; j--)
-		lPyramid[j](x, y, _) = gPyramid[j](x, y, _) - upsample(gPyramid[j + 1])(x, y, _);
-	return lPyramid;
-}
-
-// Returns Gaussian pyramid of an input image, as an image.
-template<int J>
-std::array<Image<float>, J> gaussianPyramidImages(const Image<float>& in)
-{
-	static ImageParam prevPyramidInput(Float(32), 2);
-	static Func prevPyramidInputClamped;
-	static Func pyramidLevel;
-
-	if (!prevPyramidInputClamped.defined() && !pyramidLevel.defined())
-	{
-		prevPyramidInputClamped = clipToEdges(prevPyramidInput);
-		pyramidLevel(x, y) = downsample(prevPyramidInputClamped)(x, y);
-	}
-
-	std::array<Image<float>, 8> gPyramid;
-	gPyramid[0] = in;
-	for (int j = 1, w = in.width() / 2, h = in.height() / 2; j < J; j++, w /= 2, h /= 2)
-	{
-		prevPyramidInput.set(gPyramid[j - 1]);
-		gPyramid[j] = pyramidLevel.realize(w, h);
-	}
-
-	return gPyramid;
-}
-
-// Reconstructs image from Laplacian pyramid
-template<int J>
-Func reconstruct(ImageParam(&lPyramid)[J])
-{
-	Func clamped[J];
-	for (int i = 0; i < J; i++)
-		clamped[i] = clipToEdges(lPyramid[i]);
-	Func output[J];
-	output[J - 1](x, y, _) = clamped[J - 1](x, y, _);
-	for (int j = J - 2; j >= 0; j--)
-		output[j](x, y, _) = upsample(output[j + 1])(x, y, _) + clamped[j](x, y, _);
-	for (int i = 1; i < J; i++)
-		output[i].compute_root().vectorize(x, 4).parallel(y, 4);
-	return output[0];
-}
-
-// Sets an array of ImageParams, with offset such that ipArray[i] <- images[(i + offset) % P];
-template<int P>
-void setImages(ImageParam(&ipArray)[P], Image<float>(&images)[P], int offset = 0)
-{
-	for (int i = 0; i < P; i++)
-		ipArray[i].set(images[(i + offset) % P]);
-}
-
-// Sets an array of ImageParams, with offset such that ipArray[i] <- images[(i + offset) % P];
-template<int P>
-void setImages(std::array<ImageParam, P>& ipArray, const std::array<Image<float>, P>& images, int offset = 0)
-{
-	for (int i = 0; i < P; i++)
-		ipArray[i].set(images[(i + offset) % P]);
-}
-
-#pragma endregion
-
-// First version of algorithm.
-int main_v1()
-{
-	// Number of pyramid levels
-	const int J = 8;
-	// Number of entries in circular buffer.
-	const int P = 5;
-	const float alphaValues[J] = { 0, 0, 4, 7, 8, 9, 10, 10 };
-
-	// Input image param.
-	ImageParam input(Float(32), 3, "input");
-
-	// Ciruclar buffer image params (x, y). [0] is most recent, [4] is least recent.
-	ImageParam bufferInput[P];
-	for (int i = 0; i < P; i++)
-		bufferInput[i] = ImageParam(Float(32), 2);
-	ImageParam temporalProcessOutput[P];
-	for (int i = 0; i < P; i++)
-		temporalProcessOutput[i] = ImageParam(Float(32), 2);
-	// Image params for Laplacian reconstruction, which takes in an image param array.
-	ImageParam ipArray[J];
-	for (int i = 0; i < J; i++)
-		ipArray[i] = ImageParam(Float(32), 2);
-	Param<float> alpha;
-
-	// Reconstruction function.
-	Func lReconstruct = reconstruct(ipArray);
-
-	// Algorithm
-	Func clamped = lambda(x, y, c, input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c));
-	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
-	std::array<Func, J> gPyramid = gaussianPyramid<J>(grey);
-	std::array<Func, J> lPyramid = laplacianPyramid(gPyramid);
-	Func temporalProcess;
-	temporalProcess(x, y) = 1.1430f * temporalProcessOutput[2](x, y) - 0.4128f * temporalProcessOutput[4](x, y)
-		+ 0.6389f * bufferInput[0](x, y) - 1.2779f * bufferInput[2](x, y)
-		+ 0.6389f * bufferInput[4](x, y);
-	Func outputProcess;
-	outputProcess(x, y) = bufferInput[4](x, y) + alpha * temporalProcessOutput[0](x, y);
-
-	// Reconstruction with color.
-	Func reconstruction;
-	reconstruction(x, y, c) = clamp(lReconstruct(x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
-
-	// Scheduling
-	Var xi, yi;
-	reconstruction.tile(x, y, xi, yi, 160, 24).vectorize(xi, 4).parallel(y);
-	lReconstruct.compute_root().vectorize(x, 4).parallel(y, 4);
-	grey.compute_root().vectorize(x, 4).parallel(y, 4);
-	for (int j = 1; j < 7; j++)
-	{
-		gPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
-	}
-	for (int j = 7; j < J; j++)
-	{
-		gPyramid[j].compute_root();
-	}
-
-	WebcamApp app;
-	NamedWindow window;
-	Image<float> pyramidBuffer[P][J];
-	Image<float> outputBuffer[P][J];
-	for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		for (int i = 0; i < P; i++)
-			outputBuffer[i][j] = Image<float>(w, h);
-	Image<float> outPyramid[J];
-	for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		outPyramid[j] = Image<float>(w, h);
-	double timeSum = 0;
-	int frameCounter = -10;
-	for (int i = 0;; i++, frameCounter++)
-	{
-		auto im = app.readFrame();
-		double t0 = currentTime();
-		// --- timing ---
-		input.set(im);
-		for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		{
-			pyramidBuffer[i % P][j] = lPyramid[j].realize(w, h);
-			if (alphaValues[j] == 0.0f || i < P - 1)
-			{
-				outPyramid[j] = pyramidBuffer[i % P][j];
-			}
-			else
-			{
-				for (int p = 0; p < P; p++)
-				{
-					bufferInput[p].set(pyramidBuffer[(i - p) % P][j]);
-					temporalProcessOutput[p].set(outputBuffer[(i - p) % P][j]);
-				}
-				outputBuffer[i % P][j] = temporalProcess.realize(w, h);
-				temporalProcessOutput[0].set(outputBuffer[i % P][j]);
-				alpha.set(alphaValues[j]);
-				outPyramid[j] = outputProcess.realize(w, h);
-			}
-		}
-		setImages(ipArray, outPyramid);
-		Image<float> out = reconstruction.realize(app.width(), app.height(), app.channels());
-		// --- end timing ---
-		double diff = currentTime() - t0;
-		window.showImage(out);
-		if (cv::waitKey(30) >= 0)
-			break;
-
-		if (frameCounter >= 0)
-		{
-			timeSum += diff / 1000.0;
-			std::cout << "(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
-		}
-	}
-	std::cout << "\nAverage FPS: " << frameCounter / timeSum << std::endl
-		<< "Number of frames: " << frameCounter << std::endl;
-	return 0;
-}
-
-// Full algorithm with intermediate realizing (i.e. not one pipeline)
-int main_v2()
-{
-	const int J = 8;
-	const int P = 5;
-	const float alphaValues[J] = { 0, 0, 4, 7, 8, 9, 10, 10 };
-
-	ImageParam input(Float(32), 3, "input");
-	Func clamped = lambda(x, y, c, input(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1), c));
-	Func grey = lambda(x, y, 0.299f * clamped(x, y, 0) + 0.587f * clamped(x, y, 1) + 0.114f * clamped(x, y, 2));
-
-	// Pyramids
-	std::array<ImageParam, J> gPyramidInput;
-	for (int j = 0; j < J; j++)
-		gPyramidInput[j] = ImageParam(Float(32), 2);
-	std::array<Func, J> gPyramidInputClamped;
-	for (int j = 0; j < J; j++)
-		gPyramidInputClamped[j] = clipToEdges(gPyramidInput[j]);
-	std::array<Func, J> lPyramid = laplacianPyramid(gPyramidInputClamped);
-
-	// Ciruclar buffer image params (x, y). [0] is most recent, [4] is least recent.
-	ImageParam bufferInput[P];
-	for (int i = 0; i < P; i++)
-		bufferInput[i] = ImageParam(Float(32), 2);
-	ImageParam temporalProcessOutput[P];
-	for (int i = 0; i < P; i++)
-		temporalProcessOutput[i] = ImageParam(Float(32), 2);
-
-	// Image params for Laplacian reconstruction, which takes in an image param array.
-	ImageParam ipArray[J];
-	for (int i = 0; i < J; i++)
-		ipArray[i] = ImageParam(Float(32), 2);
-	Param<float> alpha;
-
-	// Reconstruction function.
-	Func lReconstruct = reconstruct(ipArray);
-
-	// Algorithm
-	Func temporalProcess;
-	temporalProcess(x, y) = 1.1430f * temporalProcessOutput[2](x, y) - 0.4128f * temporalProcessOutput[4](x, y)
-		+ 0.6389f * bufferInput[0](x, y) - 1.2779f * bufferInput[2](x, y)
-		+ 0.6389f * bufferInput[4](x, y);
-	Func outputProcess;
-	outputProcess(x, y) = bufferInput[4](x, y) + alpha * temporalProcessOutput[0](x, y);
-
-	// Reconstruction with color.
-	Func reconstruction;
-	reconstruction(x, y, c) = clamp(lReconstruct(x, y) * clamped(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
-
-	// Scheduling
-	Var xi, yi;
-	reconstruction.tile(x, y, xi, yi, 160, 24).vectorize(xi, 4).parallel(y);
-	lReconstruct.compute_root().vectorize(x, 4).parallel(y, 4);
-	grey.compute_root().vectorize(x, 4).parallel(y, 4);
-
-	WebcamApp app;
-	NamedWindow window;
-	Image<float> pyramidBuffer[P][J];
-	Image<float> outputBuffer[P][J];
-	for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		for (int i = 0; i < P; i++)
-			outputBuffer[i][j] = Image<float>(w, h);
-	Image<float> outPyramid[J];
-	for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		outPyramid[j] = Image<float>(w, h);
-	double timeSum = 0;
-	int frameCounter = -10;
-
-	// Main loop
-	for (int i = 0;; i++, frameCounter++)
-	{
-		Image<float> frame;
-		Image<float> out;
-		frame = app.readFrame();
-		double t = currentTime();
-		// --- timing ---
-		input.set(frame);
-		auto gImages = gaussianPyramidImages<J>(grey.realize(app.width(), app.height()));
-		setImages(gPyramidInput, gImages);
-		for (int j = 0, w = app.width(), h = app.height(); j < J; j++, w /= 2, h /= 2)
-		{
-			pyramidBuffer[i % P][j] = lPyramid[j].realize(w, h);
-			if (alphaValues[j] == 0.0f || i < P - 1)
-			{
-				outPyramid[j] = pyramidBuffer[i % P][j];
-			}
-			else
-			{
-				for (int p = 0; p < P; p++)
-				{
-					bufferInput[p].set(pyramidBuffer[(i - p) % P][j]);
-					temporalProcessOutput[p].set(outputBuffer[(i - p) % P][j]);
-				}
-				outputBuffer[i % P][j] = temporalProcess.realize(w, h);
-				temporalProcessOutput[0].set(outputBuffer[i % P][j]);
-				alpha.set(alphaValues[j]);
-				outPyramid[j] = outputProcess.realize(w, h);
-			}
-		}
-		setImages(ipArray, outPyramid);
-		out = reconstruction.realize(app.width(), app.height(), app.channels());
-		// --- end timing ---
-		double diff = currentTime() - t;
-		window.showImage(out);
-		std::cout << diff << " ms";
-		if (cv::waitKey(30) >= 0)
-			break;
-
-		if (frameCounter >= 0)
-		{
-			timeSum += diff / 1000.0;
-			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
-		}
-		else
-		{
-			std::cout << std::endl;
-		}
-	}
-
-	return 0;
-}
-
 // Number of pyramid levels
 const int PYRAMID_LEVELS = 8;
 // Size of circular buffer
@@ -501,7 +183,7 @@ std::array<Image<float>, PYRAMID_LEVELS> temporalOutBuffer;
 
 #define TRACE 0
 
-// Extern function to copy data to an external pointer.
+// Extern function to copy data to an external buffer.
 extern "C" __declspec(dllexport) int copyFloat32(int p, int j, bool copyToTemporalOut, buffer_t *in, buffer_t *out)
 {
 	if (in->host == nullptr)
@@ -560,8 +242,7 @@ int main_v3()
 		}
 	}
 
-	Func ugrey("ugrey"); ugrey(x, y) = 0.299f * input(x, y, 0) + 0.587f * input(x, y, 1) + 0.114f * input(x, y, 2);
-	Func grey("grey"); grey(x, y) = ugrey(clamp(x, 0, input.width() - 1), clamp(y, 0, input.height() - 1));
+	Func grey("grey"); grey(x, y) = 0.299f * input(x, y, 0) + 0.587f * input(x, y, 1) + 0.114f * input(x, y, 2);
 
 	// Gaussian pyramid
 	Func gPyramid[PYRAMID_LEVELS];
@@ -570,7 +251,7 @@ int main_v3()
 	for (int j = 1; j < PYRAMID_LEVELS; j++)
 	{
 		gPyramid[j] = Func("gPyramid" + std::to_string(j));
-		gPyramid[j](x, y) = downsample(gPyramid[j - 1])(x, y);
+		gPyramid[j](x, y) = downsample(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
 	}
 
 	// Laplacian pyramid
@@ -580,7 +261,7 @@ int main_v3()
 	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
 	{
 		lPyramid[j] = Func("lPyramid" + std::to_string(j));
-		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(gPyramid[j + 1])(x, y);
+		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(clipToEdges(gPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
 	}
 
 	// Copy to pyramid buffer
@@ -622,57 +303,70 @@ int main_v3()
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		outLPyramid[j] = Func("outLPyramid" + std::to_string(j));
-		Func temp("temp" + std::to_string(j));
-		temp(x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
-		outLPyramid[j](x, y) = clipToEdges(temp, scaleSize(app.width(), j), scaleSize(app.height(), j))(x, y);
+		outLPyramid[j](x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
 	}
 
 	Func outGPyramid[PYRAMID_LEVELS];
+	outGPyramid[PYRAMID_LEVELS - 1] = Func("outGPyramid" + std::to_string(PYRAMID_LEVELS - 1));
 	outGPyramid[PYRAMID_LEVELS - 1](x, y) = outLPyramid[PYRAMID_LEVELS - 1](x, y);
 	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
 	{
 		outGPyramid[j] = Func("outGPyramid" + std::to_string(j));
-		outGPyramid[j](x, y) = outLPyramid[j](x, y) + upsample(outGPyramid[j + 1])(x, y);
+		outGPyramid[j](x, y) = outLPyramid[j](x, y) + upsample(clipToEdges(outGPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
 	}
 
 	Func output("output");
-	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (0.001f + grey(x, y)), 0.0f, 1.0f);
+	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
 
 	// Schedule
 	Var xi("xi"), yi("yi");
 
-	output.parallel(y, 4).vectorize(x, 4);
-	outGPyramid[0].tile(x, y, xi, yi, 80, 60);
+	output.parallel(y, 4).vectorize(x, 4)
+		.bound(x, 0, app.width())
+		.bound(y, 0, app.height())
+		.bound(c, 0, app.channels());
+	outGPyramid[0]
+		.bound(x, 0, app.width())
+		.bound(y, 0, app.height());
 
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
 		lPyramidWithCopy[j].compute_root();
+		temporalProcessWithCopy[j].compute_root();
 
 		if (j <= 4)
 		{
-			outGPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
-			temporalProcessWithCopy[j].compute_root();
-			temporalProcess[j].compute_root();
-			lPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
+			outGPyramid[j].tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y, 4).vectorize(x, 4);
+			lPyramid[j].parallel(y, 4);
 			if (j > 0)
-			{
-				gPyramid[j].compute_root().parallel(y, 4).vectorize(x, 4);
-			}
+				gPyramid[j].parallel(y, 4);
 		}
 		else
 		{
-			outGPyramid[j].compute_root().parallel(y).vectorize(x, 4);
-			temporalProcessWithCopy[j].compute_root();
-			temporalProcess[j].compute_root();
-			lPyramid[j].compute_root().parallel(y).vectorize(x, 4);
-			if (j > 0)
-			{
-				gPyramid[j].compute_root().parallel(y).vectorize(x, 4);
-			}
+			lPyramid[j].parallel(y);
+			gPyramid[j].parallel(y);
+		}
+
+		outGPyramid[j].compute_root()
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		temporalProcess[j].compute_root()
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		lPyramid[j].compute_root().vectorize(x, 4)
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		if (j > 0)
+		{
+			gPyramid[j].compute_root().vectorize(x, 4)
+				.bound(x, 0, scaleSize(app.width(), j))
+				.bound(y, 0, scaleSize(app.height(), j));
 		}
 	}
 
-	ugrey.compute_root().parallel(y, 4).vectorize(x, 4);
+	grey.compute_root().parallel(y, 4).vectorize(x, 4)
+		.bound(x, 0, app.width())
+		.bound(y, 0, app.height());
 
 	// Compile
 	std::cout << "Compiling...";
@@ -682,12 +376,12 @@ int main_v3()
 	std::cout << "\nDone compiling!\n";
 
 	NamedWindow window("Results");
-	window.resize(640, 480);
+	Image<float> frame;
 	double timeSum = 0;
 	int frameCounter = -10;
 	for (int i = 0;; i++, frameCounter++)
 	{
-		Image<float> frame = app.readFrame();
+		frame = app.readFrame();
 		int p = i % CIRCBUFFER_SIZE;
 		pParam.set(p);
 		input.set(frame);
@@ -703,10 +397,10 @@ int main_v3()
 		{
 			double t = currentTime();
 			// --- timing ---
-			Image<float> out = output.realize(app.width(), app.height(), app.channels());
+			output.realize(frame);
 			// --- end timing ---
 			double diff = currentTime() - t;
-			window.showImage(out);
+			window.showImage(frame);
 			std::cout << diff << " ms";
 
 			if (frameCounter >= 0)
