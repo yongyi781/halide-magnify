@@ -9,6 +9,12 @@ WebcamApp::WebcamApp() : cap(0)
 		throw std::exception("Cannot open webcam.");
 }
 
+WebcamApp::WebcamApp(std::string filename) : cap(filename)
+{
+	if (!cap.isOpened())
+		throw std::exception("Cannot open file.");
+}
+
 Image<float> WebcamApp::readFrame()
 {
 	static Func convert("convertFromMat");
@@ -23,6 +29,9 @@ Image<float> WebcamApp::readFrame()
 
 	cv::Mat frame;
 	cap >> frame;
+	if (frame.empty())
+		return Image<float>();
+
 	ip.set(Buffer(UInt(8), frame.channels(), frame.cols, frame.rows, 0, frame.data));
 	return convert.realize(frame.cols, frame.rows, frame.channels());
 }
