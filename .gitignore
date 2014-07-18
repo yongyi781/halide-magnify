@@ -159,3 +159,6 @@ HalideApps.sln.ide/edb.chk
 *.ide
 HalideApps/gPyramid.c
 HalideApps/output.c
+*.jpg
+*.png
+HalideApps/profile.txt

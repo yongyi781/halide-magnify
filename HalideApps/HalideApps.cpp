@@ -227,7 +227,7 @@ Func clipToEdges(Func f, int width, int height)
 // Full algorithm with one pipeline.
 int main_v3()
 {
-	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 4, 7, 8, 9, 10, 10 };
+	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 5, 10, 20, 20, 20, 20 };
 	Param<int> pParam;
 
 	WebcamApp app;
@@ -321,10 +321,9 @@ int main_v3()
 	// Schedule
 	Var xi("xi"), yi("yi");
 
-	output.parallel(y, 4).vectorize(x, 4)
+	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).vectorize(x, 4).tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y)
 		.bound(x, 0, app.width())
-		.bound(y, 0, app.height())
-		.bound(c, 0, app.channels());
+		.bound(y, 0, app.height());
 	outGPyramid[0]
 		.bound(x, 0, app.width())
 		.bound(y, 0, app.height());
@@ -336,7 +335,7 @@ int main_v3()
 
 		if (j <= 4)
 		{
-			outGPyramid[j].tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y, 4).vectorize(x, 4);
+			outGPyramid[j].vectorize(x, 4).tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y, 4);
 			lPyramid[j].parallel(y, 4);
 			if (j > 0)
 				gPyramid[j].parallel(y, 4);
@@ -382,6 +381,8 @@ int main_v3()
 	for (int i = 0;; i++, frameCounter++)
 	{
 		frame = app.readFrame();
+		if (frame.dimensions() == 0)
+			break;
 		int p = i % CIRCBUFFER_SIZE;
 		pParam.set(p);
 		input.set(frame);
@@ -439,7 +440,7 @@ int webcam_control()
 
 int main(int argc, TCHAR* argv[])
 {
-	return main_v3();
+	return webcam_control();
 
 	//const int J = 6;
 	//const int SIZE = 80;
