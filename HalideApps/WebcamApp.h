@@ -3,15 +3,16 @@
 class WebcamApp
 {
 public:
-	WebcamApp();
+	WebcamApp(int scaleFactor = 1);
 	WebcamApp(std::string filename);
 
-	int width() { return (int)cap.get(CV_CAP_PROP_FRAME_WIDTH); }
-	int height() { return (int)cap.get(CV_CAP_PROP_FRAME_HEIGHT); }
+	int width() { return scaleFactor * (int)cap.get(CV_CAP_PROP_FRAME_WIDTH); }
+	int height() { return scaleFactor * (int)cap.get(CV_CAP_PROP_FRAME_HEIGHT); }
 	int channels() { return 3; }
 
 	Halide::Image<float> readFrame();
 
 private:
+	int scaleFactor;
 	cv::VideoCapture cap;
 };

@@ -7,6 +7,9 @@
 
 using namespace Halide;
 
+#define TRACE 0
+#define TILE 1
+
 #pragma region Declarations
 
 Var x("x"), y("y"), c("c"), w("w");
@@ -41,22 +44,14 @@ double printTiming(F0 f, std::string message = "", int iterations = 1)
 	return t;
 }
 
-// Clips image access to edges.
-Func clipToEdges(const ImageParam& ip)
-{
-	Func f("clipToEdges");
-	f(x, y, _) = ip(clamp(x, 0, ip.width() - 1), clamp(y, 0, ip.height() - 1), _);
-	return f;
-}
-
-// Downsample with a 1 3 3 1 filter
+// Downsample with a 1 2 1 filter
 template<typename F>
 Func downsample(F f)
 {
 	Func downx("downx"), downy("downy");
 
-	downx(x, y, _) = (f(2 * x - 1, y, _) + 3.0f * (f(2 * x, y, _) + f(2 * x + 1, y, _)) + f(2 * x + 2, y, _)) / 8.0f;
-	downy(x, y, _) = (downx(x, 2 * y - 1, _) + 3.0f * (downx(x, 2 * y, _) + downx(x, 2 * y + 1, _)) + downx(x, 2 * y + 2, _)) / 8.0f;
+	downx(x, y, _) = (f(2 * x - 1, y, _) + 2.0f * f(2 * x, y, _) + f(2 * x + 1, y, _)) / 4.0f;
+	downy(x, y, _) = (downx(x, 2 * y - 1, _) + 2.0f * downx(x, 2 * y, _) + downx(x, 2 * y + 1, _)) / 4.0f;
 
 	return downy;
 }
@@ -173,42 +168,47 @@ cv::Mat toMat_reordered(const Image<float>& im)
 	return mat;
 }
 
+#pragma endregion
+
 // Number of pyramid levels
-const int PYRAMID_LEVELS = 8;
+const int PYRAMID_LEVELS = 5;
 // Size of circular buffer
 const int CIRCBUFFER_SIZE = 5;
 
 std::array<Image<float>, PYRAMID_LEVELS> pyramidBuffer;
 std::array<Image<float>, PYRAMID_LEVELS> temporalOutBuffer;
 
-#define TRACE 0
-
 // Extern function to copy data to an external buffer.
-extern "C" __declspec(dllexport) int copyFloat32(int p, int j, bool copyToTemporalOut, buffer_t *in, buffer_t *out)
+extern "C" __declspec(dllexport) int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 {
-	if (in->host == nullptr)
+	if (in->host == nullptr || out->host == nullptr)
 	{
-		for (int i = 0; i < 2; i++)
+		if (in->host == nullptr)
 		{
-			in->min[i] = out->min[i];
-			in->extent[i] = out->extent[i];
+			for (int i = 0; i < 2; i++)
+			{
+				in->min[i] = out->min[i];
+				in->extent[i] = out->extent[i];
+			}
 		}
 	}
 	else
 	{
 #if TRACE
-		printf("Copy(%d, %d, %d) called over [%d, %d] x [%d, %d]\n", p, j, copyToTemporalOut, out->min[0], out->min[0] + out->extent[0], out->min[1], out->min[1] + out->extent[1]);
+		printf("[Copy] p: %d out: [%d, %d] x [%d, %d], in: [%d, %d] x [%d, %d]\n", p,
+			out->min[0], out->min[0] + out->extent[0] - 1, out->min[1], out->min[1] + out->extent[1] - 1,
+			in->min[0], in->min[0] + in->extent[0] - 1, in->min[1], in->min[1] + in->extent[1] - 1);
 #endif
 		float* src = (float*)in->host;
 		float* dst = (float*)out->host;
-		float* data = (copyToTemporalOut ? temporalOutBuffer[j].data() + p * temporalOutBuffer[j].stride(2) : pyramidBuffer[j].data() + p * pyramidBuffer[j].stride(2));
+		float* dstCopy = (float*)copyTo->host + p * copyTo->stride[2];
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
 		{
 			float* srcLine = src + (y - in->min[1]) * in->stride[1];
 			float* dstLine = dst + (y - out->min[1]) * out->stride[1];
-			float* levelLine = data + y * in->stride[1];
-			memcpy(dstLine + in->min[0], srcLine + out->min[0], sizeof(float) * out->extent[0]);
-			memcpy(levelLine + out->min[0], srcLine + out->min[0], sizeof(float) * out->extent[0]);
+			float* copyLine = dstCopy + y * copyTo->stride[1];
+			memcpy(dstLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
+			memcpy(copyLine + out->min[0], srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
 		}
 	}
 	return 0;
@@ -225,12 +225,15 @@ Func clipToEdges(Func f, int width, int height)
 }
 
 // Full algorithm with one pipeline.
+// TODO:
+// - Try bigger image (upsample webcam input)
+// - Tile everything with compute_at x
 int main_v3()
 {
-	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 5, 10, 20, 20, 20, 20 };
+	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 2, 5, 10 };
 	Param<int> pParam;
 
-	WebcamApp app;
+	WebcamApp app(2);
 	ImageParam input(Float(32), 3);
 	// Initialize pyramid buffers
 	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
@@ -268,12 +271,10 @@ int main_v3()
 	Func lPyramidWithCopy[PYRAMID_LEVELS];
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		Param<int> jParam;
-		Param<bool> copyToTemporalOutput;
-		jParam.set(j);
-		copyToTemporalOutput.set(false);
+		Param<buffer_t*> copyToParam;
+		copyToParam.set(pyramidBuffer[j].raw_buffer());
 		lPyramidWithCopy[j] = Func("lPyramidWithCopy" + std::to_string(j));
-		lPyramidWithCopy[j].define_extern("copyFloat32", { pParam, jParam, copyToTemporalOutput, lPyramid[j] }, Float(32), 2);
+		lPyramidWithCopy[j].define_extern("copyFloat32", { pParam, copyToParam, lPyramid[j] }, Float(32), 2);
 	}
 
 	Func temporalProcess[PYRAMID_LEVELS];
@@ -291,12 +292,10 @@ int main_v3()
 	Func temporalProcessWithCopy[PYRAMID_LEVELS];
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		Param<int> jParam;
-		Param<bool> copyToTemporalOutput;
-		jParam.set(j);
-		copyToTemporalOutput.set(true);
+		Param<buffer_t*> copyToParam;
+		copyToParam.set(temporalOutBuffer[j].raw_buffer());
 		temporalProcessWithCopy[j] = Func("temporalProcessWithCopy" + std::to_string(j));
-		temporalProcessWithCopy[j].define_extern("copyFloat32", { pParam, jParam, copyToTemporalOutput, temporalProcess[j] }, Float(32), 2);
+		temporalProcessWithCopy[j].define_extern("copyFloat32", { pParam, copyToParam, temporalProcess[j] }, Float(32), 2);
 	}
 
 	Func outLPyramid[PYRAMID_LEVELS];
@@ -321,61 +320,63 @@ int main_v3()
 	// Schedule
 	Var xi("xi"), yi("yi");
 
-	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).vectorize(x, 4).tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y)
-		.bound(x, 0, app.width())
-		.bound(y, 0, app.height());
-	outGPyramid[0]
-		.bound(x, 0, app.width())
-		.bound(y, 0, app.height());
+	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).vectorize(x, 4).parallel(y, 4);
+#if TILE
+	output.tile(x, y, xi, yi, app.width() / 8, app.height() / 8);
+#endif
 
 	for (int j = 0; j < PYRAMID_LEVELS; j++)
 	{
-		lPyramidWithCopy[j].compute_root();
+#if TILE
+		outGPyramid[j].compute_at(output, x);
+		temporalProcessWithCopy[j].compute_at(output, x);
+		temporalProcess[j].compute_at(output, x);
+		lPyramidWithCopy[j].compute_at(output, x);
+		lPyramid[j].compute_at(output, x);
+		gPyramid[j].compute_at(output, x);
+#else
+		outGPyramid[j].compute_root();
 		temporalProcessWithCopy[j].compute_root();
+		temporalProcess[j].compute_root();
+		lPyramidWithCopy[j].compute_root();
+		lPyramid[j].compute_root();
+		gPyramid[j].compute_root();
+		outGPyramid[j]
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		temporalProcess[j]
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		lPyramid[j]
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+		gPyramid[j]
+			.bound(x, 0, scaleSize(app.width(), j))
+			.bound(y, 0, scaleSize(app.height(), j));
+#endif
 
 		if (j <= 4)
 		{
-			outGPyramid[j].vectorize(x, 4).tile(x, y, xi, yi, 2, 2).unroll(xi).unroll(yi).parallel(y, 4);
-			lPyramid[j].parallel(y, 4);
-			if (j > 0)
-				gPyramid[j].parallel(y, 4);
+			outGPyramid[j].vectorize(x, 4).parallel(y, 4);
+			lPyramid[j].vectorize(x, 4).parallel(y, 4);
+			gPyramid[j].vectorize(x, 4).parallel(y, 4);
 		}
 		else
 		{
+			outGPyramid[j].parallel(y);
 			lPyramid[j].parallel(y);
 			gPyramid[j].parallel(y);
 		}
-
-		outGPyramid[j].compute_root()
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		temporalProcess[j].compute_root()
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		lPyramid[j].compute_root().vectorize(x, 4)
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		if (j > 0)
-		{
-			gPyramid[j].compute_root().vectorize(x, 4)
-				.bound(x, 0, scaleSize(app.width(), j))
-				.bound(y, 0, scaleSize(app.height(), j));
-		}
 	}
-
-	grey.compute_root().parallel(y, 4).vectorize(x, 4)
-		.bound(x, 0, app.width())
-		.bound(y, 0, app.height());
 
 	// Compile
 	std::cout << "Compiling...";
 	output.compile_jit();
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-		lPyramidWithCopy[j].compile_jit();
 	std::cout << "\nDone compiling!\n";
 
 	NamedWindow window("Results");
 	Image<float> frame;
+	Image<float> out(app.width(), app.height(), app.channels());
 	double timeSum = 0;
 	int frameCounter = -10;
 	for (int i = 0;; i++, frameCounter++)
@@ -389,19 +390,16 @@ int main_v3()
 
 		if (i < CIRCBUFFER_SIZE - 1)
 		{
-			for (int j = 0; j < PYRAMID_LEVELS; j++)
-			{
-				lPyramidWithCopy[j].realize(scaleSize(app.width(), j), scaleSize(app.height(), j));
-			}
+			output.realize(app.width(), app.height(), app.channels());
 		}
 		else
 		{
 			double t = currentTime();
 			// --- timing ---
-			output.realize(frame);
+			output.realize(out);
 			// --- end timing ---
 			double diff = currentTime() - t;
-			window.showImage(frame);
+			window.showImage(out);
 			std::cout << diff << " ms";
 
 			if (frameCounter >= 0)
@@ -438,9 +436,34 @@ int webcam_control()
 	return 0;
 }
 
+int main_bug()
+{
+	const int WIDTH = 1280, HEIGHT = 960;
+	Image<float> in = lambda(x, y, cast<float>(x + y)).realize(WIDTH, HEIGHT);
+
+	Func gPyramid1("gPyramid1"), gPyramid2("gPyramid2"), lPyramid1("lPyramid1"), lPyramid2("lPyramid2");
+	gPyramid1(x, y) = downsample(clipToEdges(in))(x, y);
+	gPyramid2(x, y) = downsample(clipToEdges(in))(x, y);
+	lPyramid1(x, y) = in(x, y) - upsample(clipToEdges(gPyramid1, WIDTH / 2, HEIGHT / 2))(x, y);
+	lPyramid2(x, y) = in(x, y) - upsample(clipToEdges(gPyramid2, WIDTH / 2, HEIGHT / 2))(x, y);
+
+	Var xi("xi"), yi("yi");
+	lPyramid2.tile(x, y, xi, yi, WIDTH / 2, HEIGHT / 2);
+
+	Image<float> out1 = lPyramid1.realize(WIDTH / 2, HEIGHT / 2);
+	Image<float> out2 = lPyramid2.realize(WIDTH / 2, HEIGHT / 2);
+
+	for (int y = 0; y < HEIGHT / 2; y++)
+		for (int x = 0; x < WIDTH / 2; x++)
+			if (out1(x, y) != out2(x, y))
+				std::cerr << "Mismatch at (" << x << ", " << y << ")" << std::endl;
+
+	return 0;
+}
+
 int main(int argc, TCHAR* argv[])
 {
-	return webcam_control();
+	return main_v3();
 
 	//const int J = 6;
 	//const int SIZE = 80;

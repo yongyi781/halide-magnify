@@ -3,7 +3,7 @@
 
 using namespace Halide;
 
-WebcamApp::WebcamApp() : cap(0)
+WebcamApp::WebcamApp(int scaleFactor) : scaleFactor(scaleFactor), cap(0)
 {
 	if (!cap.isOpened())
 		throw std::exception("Cannot open webcam.");
@@ -23,7 +23,7 @@ Image<float> WebcamApp::readFrame()
 
 	if (!convert.defined())
 	{
-		convert(x, y, c) = ip(c, x, y) / 255.0f;
+		convert(x, y, c) = ip(c, x / scaleFactor, y / scaleFactor) / 255.0f;
 		convert.vectorize(x, 4).parallel(y, 4);
 	}
 
@@ -33,5 +33,5 @@ Image<float> WebcamApp::readFrame()
 		return Image<float>();
 
 	ip.set(Buffer(UInt(8), frame.channels(), frame.cols, frame.rows, 0, frame.data));
-	return convert.realize(frame.cols, frame.rows, frame.channels());
+	return convert.realize(scaleFactor * frame.cols, scaleFactor * frame.rows, frame.channels());
 }
