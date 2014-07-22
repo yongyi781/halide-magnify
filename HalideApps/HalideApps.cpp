@@ -228,12 +228,12 @@ Func clipToEdges(Func f, int width, int height)
 // TODO:
 // - Try bigger image (upsample webcam input)
 // - Tile everything with compute_at x
-int main_v3()
+int main_eulerian()
 {
-	const float alphaValues[PYRAMID_LEVELS] = { 0, 0, 2, 5, 10 };
+	const float alphaValues[] = { 0, 0, 2, 5, 10, 10, 10, 10 };
 	Param<int> pParam;
 
-	WebcamApp app(2);
+	WebcamApp app;
 	ImageParam input(Float(32), 3);
 	// Initialize pyramid buffers
 	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
@@ -374,7 +374,7 @@ int main_v3()
 	output.compile_jit();
 	std::cout << "\nDone compiling!\n";
 
-	NamedWindow window("Results");
+	NamedWindow window("Results", cv::WINDOW_NORMAL);
 	Image<float> frame;
 	Image<float> out(app.width(), app.height(), app.channels());
 	double timeSum = 0;
@@ -436,85 +436,25 @@ int webcam_control()
 	return 0;
 }
 
-int main_bug()
-{
-	const int WIDTH = 1280, HEIGHT = 960;
-	Image<float> in = lambda(x, y, cast<float>(x + y)).realize(WIDTH, HEIGHT);
-
-	Func gPyramid1("gPyramid1"), gPyramid2("gPyramid2"), lPyramid1("lPyramid1"), lPyramid2("lPyramid2");
-	gPyramid1(x, y) = downsample(clipToEdges(in))(x, y);
-	gPyramid2(x, y) = downsample(clipToEdges(in))(x, y);
-	lPyramid1(x, y) = in(x, y) - upsample(clipToEdges(gPyramid1, WIDTH / 2, HEIGHT / 2))(x, y);
-	lPyramid2(x, y) = in(x, y) - upsample(clipToEdges(gPyramid2, WIDTH / 2, HEIGHT / 2))(x, y);
-
-	Var xi("xi"), yi("yi");
-	lPyramid2.tile(x, y, xi, yi, WIDTH / 2, HEIGHT / 2);
-
-	Image<float> out1 = lPyramid1.realize(WIDTH / 2, HEIGHT / 2);
-	Image<float> out2 = lPyramid2.realize(WIDTH / 2, HEIGHT / 2);
-
-	for (int y = 0; y < HEIGHT / 2; y++)
-		for (int x = 0; x < WIDTH / 2; x++)
-			if (out1(x, y) != out2(x, y))
-				std::cerr << "Mismatch at (" << x << ", " << y << ")" << std::endl;
-
-	return 0;
-}
-
 int main(int argc, TCHAR* argv[])
 {
-	return main_v3();
+	const int N = 50, WIDTH = 256, HEIGHT = 256;
 
-	//const int J = 6;
-	//const int SIZE = 80;
+	Param<float> tParam;
+	Func gen;
+	gen(x, y) = 0.5f + 0.5f * cos(0.05f * (x - sin(0.2f * tParam)) + 0.09f * y);
+	Image<float> in[N];
+	for (int i = 0; i < N; i++)
+	{
+		tParam.set((float)i);
+		in[i] = gen.realize(WIDTH, HEIGHT);
+	}
 
-	//Func f("f");
-
-	//f(x, y) = cast<float>(x + 2 * y);
-
-	//for (int level = 0; level < 8; level++)
-	//	stuff[level] = Image<float>(scaleSize(SIZE, level), scaleSize(SIZE, level));
-
-	//Func g[J], h[J];
-	//for (int j = 0; j < J; j++)
-	//{
-	//	Param<float*> param;
-	//	param.set(stuff[j].data());
-	//	g[j].define_extern("copyFloat32", vector < ExternFuncArgument > {param, f}, Float(32), 2);
-	//	h[j](x, y) = g[j](x, y);
-	//}
-
-	//Var xi, yi;
-	//for (int j = 0; j < J; j++)
-	//{
-	//	f.compute_root();
-	//	g[j].compute_at(h[j], x);
-	//	if (scaleSize(SIZE, j) % 4 == 0)
-	//		h[j].tile(x, y, xi, yi, 4, 4).vectorize(x, 4).parallel(y, 4);
-	//}
-
-	//Image<float> result[J];
-	//for (int j = 0; j < J; j++)
-	//	result[j] = h[j].realize(scaleSize(SIZE, j), scaleSize(SIZE, j));
-
-	//for (int LEVEL = 0; LEVEL < J; LEVEL++)
-	//{
-	//	for (int y = 0; y < scaleSize(SIZE, LEVEL); y++)
-	//	{
-	//		for (int x = 0; x < scaleSize(SIZE, LEVEL); x++)
-	//			std::cout << result[LEVEL](x, y) << " ";
-	//		std::cout << "\n";
-	//	}
-	//	std::cout << std::endl;
-
-	//	for (int y = 0; y < scaleSize(SIZE, LEVEL); y++)
-	//	{
-	//		for (int x = 0; x < scaleSize(SIZE, LEVEL); x++)
-	//			std::cout << stuff[LEVEL](x, y) << " ";
-	//		std::cout << "\n";
-	//	}
-	//	std::cout << "\n\n";
-	//}
-
-	//return 0;
+	NamedWindow window("Input");
+	for (int i = 0;; i++)
+	{
+		window.showImage(in[i % N]);
+		if (cv::waitKey(20) >= 0)
+			break;
+	}
 }
