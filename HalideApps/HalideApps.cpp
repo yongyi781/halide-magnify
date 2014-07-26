@@ -2,25 +2,17 @@
 //
 
 #include "stdafx.h"
-#include "WebcamApp.h"
+#include "Util.h"
+#include "VideoApp.h"
 #include "NamedWindow.h"
+#include "EulerianMagnifier.h"
+#include "RieszMagnifier.h"
 
 using namespace Halide;
-
-#define TRACE 0
-#define TILE 1
 
 #pragma region Declarations
 
 Var x("x"), y("y"), c("c"), w("w");
-
-// Returns initialSize / 2^level. Used for pyramids.
-int scaleSize(int initialSize, int level)
-{
-	while (--level >= 0)
-		initialSize /= 2;
-	return initialSize;
-}
 
 // Returns timing in milliseconds.
 template<typename F0>
@@ -44,39 +36,15 @@ double printTiming(F0 f, std::string message = "", int iterations = 1)
 	return t;
 }
 
-// Downsample with a 1 2 1 filter
-template<typename F>
-Func downsample(F f)
-{
-	Func downx("downx"), downy("downy");
-
-	downx(x, y, _) = (f(2 * x - 1, y, _) + 2.0f * f(2 * x, y, _) + f(2 * x + 1, y, _)) / 4.0f;
-	downy(x, y, _) = (downx(x, 2 * y - 1, _) + 2.0f * downx(x, 2 * y, _) + downx(x, 2 * y + 1, _)) / 4.0f;
-
-	return downy;
-}
-
-// Upsample using bilinear interpolation
-template<typename F>
-Func upsample(F f)
-{
-	Func upx("upx"), upy("upy");
-
-	upx(x, y, _) = 0.25f * f((x / 2) - 1 + 2 * (x % 2), y, _) + 0.75f * f(x / 2, y, _);
-	upy(x, y, _) = 0.25f * upx(x, (y / 2) - 1 + 2 * (y % 2), _) + 0.75f * upx(x, y / 2, _);
-
-	return upy;
-}
-
 // Converts a Mat to an Image<uint8_t> (channels, width, height).
 // Different order: channels = extent(0), width = extent(1), height = extent(2).
-Image<uint8_t> toImage_uint8(const cv::Mat& mat)
+Image<uint8_t> toImage_uint8(cv::Mat mat)
 {
 	return Image<uint8_t>(Buffer(UInt(8), mat.channels(), mat.cols, mat.rows, 0, mat.data));;
 }
 
 // Converts a Mat to an Image<uint8_t> and reorders the data to be in the order (width, height, channels).
-Image<uint8_t> toImage_uint8_reorder(const cv::Mat& mat)
+Image<uint8_t> toImage_uint8_reorder(cv::Mat mat)
 {
 	static Func convert;
 	static ImageParam ip(UInt(8), 3);
@@ -93,13 +61,13 @@ Image<uint8_t> toImage_uint8_reorder(const cv::Mat& mat)
 }
 
 // Converts an Image<uint8_t> (channels, width, height) to a Mat.
-cv::Mat toMat(const Image<uint8_t>& im)
+cv::Mat toMat(Image<uint8_t> im)
 {
 	return cv::Mat(im.extent(2), im.extent(1), CV_8UC3, im.data());
 }
 
 // Converts a reordered Image<uint8_t> (width, height, channels) to a Mat.
-void toMat_reordered(const Image<uint8_t>& im, cv::Mat& mat)
+void toMat_reordered(Image<uint8_t> im, cv::Mat mat)
 {
 	static Func convert;
 	static ImageParam ip(UInt(8), 3);
@@ -116,7 +84,7 @@ void toMat_reordered(const Image<uint8_t>& im, cv::Mat& mat)
 }
 
 // Converts a Mat to an Image<float> and reorders the data to be in the order (width, height, channels).
-Image<float> toImage_reorder(const cv::Mat& mat)
+Image<float> toImage_reorder(cv::Mat mat)
 {
 	static Func convert;
 	static ImageParam ip(UInt(8), 3);
@@ -133,7 +101,7 @@ Image<float> toImage_reorder(const cv::Mat& mat)
 }
 
 // Converts a reordered Image<uint8_t> (width, height, channels) to a Mat (CV_8UC3).
-void toMat_reordered(const Image<float>& im, cv::Mat& mat)
+void toMat_reordered(Image<float> im, cv::Mat mat)
 {
 	static Func convert;
 	static ImageParam ip(Float(32), 3);
@@ -150,7 +118,7 @@ void toMat_reordered(const Image<float>& im, cv::Mat& mat)
 }
 
 // Converts a reordered Image<uint8_t> (width, height, channels) to a Mat (CV_8UC3).
-cv::Mat toMat_reordered(const Image<float>& im)
+cv::Mat toMat_reordered(Image<float> im)
 {
 	static Func convert;
 	static ImageParam ip(Float(32), 3);
@@ -170,211 +138,14 @@ cv::Mat toMat_reordered(const Image<float>& im)
 
 #pragma endregion
 
-// Number of pyramid levels
-const int PYRAMID_LEVELS = 5;
-// Size of circular buffer
-const int CIRCBUFFER_SIZE = 5;
-
-std::array<Image<float>, PYRAMID_LEVELS> pyramidBuffer;
-std::array<Image<float>, PYRAMID_LEVELS> temporalOutBuffer;
-
-// Extern function to copy data to an external buffer.
-extern "C" __declspec(dllexport) int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
+int main_magnify()
 {
-	if (in->host == nullptr || out->host == nullptr)
-	{
-		if (in->host == nullptr)
-		{
-			for (int i = 0; i < 2; i++)
-			{
-				in->min[i] = out->min[i];
-				in->extent[i] = out->extent[i];
-			}
-		}
-	}
-	else
-	{
-#if TRACE
-		printf("[Copy] p: %d out: [%d, %d] x [%d, %d], in: [%d, %d] x [%d, %d]\n", p,
-			out->min[0], out->min[0] + out->extent[0] - 1, out->min[1], out->min[1] + out->extent[1] - 1,
-			in->min[0], in->min[0] + in->extent[0] - 1, in->min[1], in->min[1] + in->extent[1] - 1);
-#endif
-		float* src = (float*)in->host;
-		float* dst = (float*)out->host;
-		float* dstCopy = (float*)copyTo->host + p * copyTo->stride[2];
-		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
-		{
-			float* srcLine = src + (y - in->min[1]) * in->stride[1];
-			float* dstLine = dst + (y - out->min[1]) * out->stride[1];
-			float* copyLine = dstCopy + y * copyTo->stride[1];
-			memcpy(dstLine, srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
-			memcpy(copyLine + out->min[0], srcLine + out->min[0] - in->min[0], sizeof(float) * out->extent[0]);
-		}
-	}
-	return 0;
-}
+	VideoApp app;
+	EulerianMagnifier magnifier(app);
 
-Func clipToEdges(Image<float> im)
-{
-	return lambda(x, y, _, im(clamp(x, 0, im.width() - 1), clamp(y, 0, im.height() - 1), _));
-}
-
-Func clipToEdges(Func f, int width, int height)
-{
-	return lambda(x, y, _, f(clamp(x, 0, width - 1), clamp(y, 0, height - 1), _));
-}
-
-// Full algorithm with one pipeline.
-// TODO:
-// - Try bigger image (upsample webcam input)
-// - Tile everything with compute_at x
-int main_eulerian()
-{
-	const float alphaValues[] = { 0, 0, 2, 5, 10, 10, 10, 10 };
-	Param<int> pParam;
-
-	WebcamApp app;
-	ImageParam input(Float(32), 3);
-	// Initialize pyramid buffers
-	for (int p = 0; p < CIRCBUFFER_SIZE; p++)
-	{
-		for (int j = 0; j < PYRAMID_LEVELS; j++)
-		{
-			pyramidBuffer[j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE);
-			temporalOutBuffer[j] = Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE);
-		}
-	}
-
-	Func grey("grey"); grey(x, y) = 0.299f * input(x, y, 0) + 0.587f * input(x, y, 1) + 0.114f * input(x, y, 2);
-
-	// Gaussian pyramid
-	Func gPyramid[PYRAMID_LEVELS];
-	gPyramid[0] = Func("gPyramid0");
-	gPyramid[0](x, y) = grey(x, y);
-	for (int j = 1; j < PYRAMID_LEVELS; j++)
-	{
-		gPyramid[j] = Func("gPyramid" + std::to_string(j));
-		gPyramid[j](x, y) = downsample(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
-	}
-
-	// Laplacian pyramid
-	Func lPyramid[PYRAMID_LEVELS];
-	lPyramid[PYRAMID_LEVELS - 1] = Func("lPyramid" + std::to_string(PYRAMID_LEVELS - 1));
-	lPyramid[PYRAMID_LEVELS - 1](x, y) = gPyramid[PYRAMID_LEVELS - 1](x, y);
-	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
-	{
-		lPyramid[j] = Func("lPyramid" + std::to_string(j));
-		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(clipToEdges(gPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
-	}
-
-	// Copy to pyramid buffer
-	Func lPyramidWithCopy[PYRAMID_LEVELS];
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-	{
-		Param<buffer_t*> copyToParam;
-		copyToParam.set(pyramidBuffer[j].raw_buffer());
-		lPyramidWithCopy[j] = Func("lPyramidWithCopy" + std::to_string(j));
-		lPyramidWithCopy[j].define_extern("copyFloat32", { pParam, copyToParam, lPyramid[j] }, Float(32), 2);
-	}
-
-	Func temporalProcess[PYRAMID_LEVELS];
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-	{
-		temporalProcess[j] = Func("temporalProcess" + std::to_string(j));
-		temporalProcess[j](x, y) =
-			1.1430f * temporalOutBuffer[j](x, y, (pParam - 2 + 5) % 5)
-			- 0.4128f * temporalOutBuffer[j](x, y, (pParam - 4 + 5) % 5)
-			+ 0.6389f * lPyramidWithCopy[j](x, y)
-			- 1.2779f * pyramidBuffer[j](x, y, (pParam - 2 + 5) % 5)
-			+ 0.6389f * pyramidBuffer[j](x, y, (pParam - 4 + 5) % 5);
-	}
-
-	Func temporalProcessWithCopy[PYRAMID_LEVELS];
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-	{
-		Param<buffer_t*> copyToParam;
-		copyToParam.set(temporalOutBuffer[j].raw_buffer());
-		temporalProcessWithCopy[j] = Func("temporalProcessWithCopy" + std::to_string(j));
-		temporalProcessWithCopy[j].define_extern("copyFloat32", { pParam, copyToParam, temporalProcess[j] }, Float(32), 2);
-	}
-
-	Func outLPyramid[PYRAMID_LEVELS];
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-	{
-		outLPyramid[j] = Func("outLPyramid" + std::to_string(j));
-		outLPyramid[j](x, y) = lPyramid[j](x, y) + (alphaValues[j] == 0.0f ? 0.0f : alphaValues[j] * temporalProcessWithCopy[j](x, y));
-	}
-
-	Func outGPyramid[PYRAMID_LEVELS];
-	outGPyramid[PYRAMID_LEVELS - 1] = Func("outGPyramid" + std::to_string(PYRAMID_LEVELS - 1));
-	outGPyramid[PYRAMID_LEVELS - 1](x, y) = outLPyramid[PYRAMID_LEVELS - 1](x, y);
-	for (int j = PYRAMID_LEVELS - 2; j >= 0; j--)
-	{
-		outGPyramid[j] = Func("outGPyramid" + std::to_string(j));
-		outGPyramid[j](x, y) = outLPyramid[j](x, y) + upsample(clipToEdges(outGPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
-	}
-
-	Func output("output");
-	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
-
-	// Schedule
-	Var xi("xi"), yi("yi");
-
-	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).vectorize(x, 4).parallel(y, 4);
-#if TILE
-	output.tile(x, y, xi, yi, app.width() / 8, app.height() / 8);
-#endif
-
-	for (int j = 0; j < PYRAMID_LEVELS; j++)
-	{
-#if TILE
-		outGPyramid[j].compute_at(output, x);
-		temporalProcessWithCopy[j].compute_at(output, x);
-		temporalProcess[j].compute_at(output, x);
-		lPyramidWithCopy[j].compute_at(output, x);
-		lPyramid[j].compute_at(output, x);
-		gPyramid[j].compute_at(output, x);
-#else
-		outGPyramid[j].compute_root();
-		temporalProcessWithCopy[j].compute_root();
-		temporalProcess[j].compute_root();
-		lPyramidWithCopy[j].compute_root();
-		lPyramid[j].compute_root();
-		gPyramid[j].compute_root();
-		outGPyramid[j]
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		temporalProcess[j]
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		lPyramid[j]
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-		gPyramid[j]
-			.bound(x, 0, scaleSize(app.width(), j))
-			.bound(y, 0, scaleSize(app.height(), j));
-#endif
-
-		if (j <= 4)
-		{
-			outGPyramid[j].vectorize(x, 4).parallel(y, 4);
-			lPyramid[j].vectorize(x, 4).parallel(y, 4);
-			gPyramid[j].vectorize(x, 4).parallel(y, 4);
-		}
-		else
-		{
-			outGPyramid[j].parallel(y);
-			lPyramid[j].parallel(y);
-			gPyramid[j].parallel(y);
-		}
-	}
-
-	// Compile
-	std::cout << "Compiling...";
-	output.compile_jit();
-	std::cout << "\nDone compiling!\n";
-
-	NamedWindow window("Results", cv::WINDOW_NORMAL);
+	NamedWindow inputWindow("Input"), resultWindow("Result");
+	inputWindow.move(0, 0);
+	resultWindow.move(app.width() + 10, 0);
 	Image<float> frame;
 	Image<float> out(app.width(), app.height(), app.channels());
 	double timeSum = 0;
@@ -384,36 +155,26 @@ int main_eulerian()
 		frame = app.readFrame();
 		if (frame.dimensions() == 0)
 			break;
-		int p = i % CIRCBUFFER_SIZE;
-		pParam.set(p);
-		input.set(frame);
+		double t = currentTime();
+		// --- timing ---
+		magnifier.process(frame, out);
+		// --- end timing ---
+		double diff = currentTime() - t;
+		inputWindow.showImage(frame);
+		resultWindow.showImage(out);
+		std::cout << diff << " ms";
 
-		if (i < CIRCBUFFER_SIZE - 1)
+		if (frameCounter >= 0)
 		{
-			output.realize(app.width(), app.height(), app.channels());
+			timeSum += diff / 1000.0;
+			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
 		}
 		else
 		{
-			double t = currentTime();
-			// --- timing ---
-			output.realize(out);
-			// --- end timing ---
-			double diff = currentTime() - t;
-			window.showImage(out);
-			std::cout << diff << " ms";
-
-			if (frameCounter >= 0)
-			{
-				timeSum += diff / 1000.0;
-				std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
-			}
-			else
-			{
-				std::cout << std::endl;
-			}
-			if (cv::waitKey(30) >= 0)
-				break;
+			std::cout << std::endl;
 		}
+		if (cv::waitKey(30) >= 0)
+			break;
 	}
 
 	return 0;
@@ -438,23 +199,25 @@ int webcam_control()
 
 int main(int argc, TCHAR* argv[])
 {
-	const int N = 50, WIDTH = 256, HEIGHT = 256;
+	return main_magnify();
 
-	Param<float> tParam;
-	Func gen;
-	gen(x, y) = 0.5f + 0.5f * cos(0.05f * (x - sin(0.2f * tParam)) + 0.09f * y);
-	Image<float> in[N];
-	for (int i = 0; i < N; i++)
-	{
-		tParam.set((float)i);
-		in[i] = gen.realize(WIDTH, HEIGHT);
-	}
+	//const int N = 50, WIDTH = 256, HEIGHT = 256;
 
-	NamedWindow window("Input");
-	for (int i = 0;; i++)
-	{
-		window.showImage(in[i % N]);
-		if (cv::waitKey(20) >= 0)
-			break;
-	}
+	//Param<float> tParam;
+	//Func gen;
+	//gen(x, y) = 0.5f + 0.5f * cos(0.05f * (x - sin(0.2f * tParam)) + 0.09f * y);
+	//Image<float> in[N];
+	//for (int i = 0; i < N; i++)
+	//{
+	//	tParam.set((float)i);
+	//	in[i] = gen.realize(WIDTH, HEIGHT);
+	//}
+
+	//NamedWindow window("Input");
+	//for (int i = 0;; i++)
+	//{
+	//	window.showImage(in[i % N]);
+	//	if (cv::waitKey(20) >= 0)
+	//		break;
+	//}
 }

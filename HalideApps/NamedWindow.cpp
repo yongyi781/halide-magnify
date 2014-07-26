@@ -11,7 +11,12 @@ void NamedWindow::resize(int width, int height)
 	cv::resizeWindow(name, width, height);
 }
 
-void NamedWindow::showImage(const Halide::Image<float>& im)
+void NamedWindow::move(int x, int y)
+{
+	cv::moveWindow(name, x, y);
+}
+
+void NamedWindow::showImage(Halide::Image<float> im)
 {
 	switch (im.dimensions())
 	{
@@ -26,7 +31,7 @@ void NamedWindow::showImage(const Halide::Image<float>& im)
 	}
 }
 
-void NamedWindow::showImage(const cv::Mat& mat)
+void NamedWindow::showImage(cv::Mat mat)
 {
 	cv::imshow(name, mat);
 }
@@ -36,7 +41,7 @@ void NamedWindow::close()
 	cv::destroyWindow(name);
 }
 
-void NamedWindow::showImage3D(const Halide::Image<float>& im)
+void NamedWindow::showImage3D(Halide::Image<float> im)
 {
 	static Halide::Func convert("convertToMat3D");
 	static Halide::ImageParam ip(Halide::Float(32), 3);
@@ -54,7 +59,7 @@ void NamedWindow::showImage3D(const Halide::Image<float>& im)
 	cv::imshow(name, mat);
 }
 
-void NamedWindow::showImage2D(const Halide::Image<float>& im)
+void NamedWindow::showImage2D(Halide::Image<float> im)
 {
 	static Halide::Func convert("convertToMat2D");
 	static Halide::ImageParam ip(Halide::Float(32), 2);

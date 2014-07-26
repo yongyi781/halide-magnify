@@ -76,7 +76,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Users\Yongyi\Documents\GitHub\Halide\build\lib\RelWithDebInfo;$(OPENCV_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>Halide.lib;opencv_core248.lib;opencv_imgproc248.lib;opencv_highgui248.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Halide.lib;opencv_core249.lib;opencv_imgproc249.lib;opencv_highgui249.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <StackReserveSize>16777216</StackReserveSize>
     </Link>
     <PostBuildEvent>
@@ -104,7 +104,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>C:\Users\Yongyi\Documents\GitHub\Halide\build\lib\RelWithDebInfo;$(OPENCV_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>Halide.lib;opencv_core248.lib;opencv_imgproc248.lib;opencv_highgui248.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Halide.lib;opencv_core249.lib;opencv_imgproc249.lib;opencv_highgui249.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <StackReserveSize>16777216</StackReserveSize>
     </Link>
     <PostBuildEvent>
@@ -132,7 +132,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalLibraryDirectories>C:\Users\Yongyi\Documents\GitHub\Halide\build\lib\RelWithDebInfo;$(OPENCV_DIR)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>Halide.lib;opencv_core248.lib;opencv_imgproc248.lib;opencv_highgui248.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Halide.lib;opencv_core249.lib;opencv_imgproc249.lib;opencv_highgui249.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <StackReserveSize>16777216</StackReserveSize>
     </Link>
     <PostBuildEvent>
@@ -144,12 +144,18 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="clock.h" />
+    <ClInclude Include="EulerianMagnifier.h" />
+    <ClInclude Include="RieszMagnifier.h" />
+    <ClInclude Include="Util.h" />
     <ClInclude Include="NamedWindow.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
-    <ClInclude Include="WebcamApp.h" />
+    <ClInclude Include="VideoApp.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="EulerianMagnifier.cpp" />
+    <ClCompile Include="RieszMagnifier.cpp" />
+    <ClCompile Include="Util.cpp" />
     <ClCompile Include="HalideApps.cpp" />
     <ClCompile Include="NamedWindow.cpp" />
     <ClCompile Include="stdafx.cpp">
@@ -157,7 +163,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Profile|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="WebcamApp.cpp" />
+    <ClCompile Include="VideoApp.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

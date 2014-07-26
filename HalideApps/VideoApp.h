@@ -1,10 +1,10 @@
 #pragma once
 
-class WebcamApp
+class VideoApp
 {
 public:
-	WebcamApp(int scaleFactor = 1);
-	WebcamApp(std::string filename);
+	VideoApp(int scaleFactor = 1);
+	VideoApp(std::string filename);
 
 	int width() { return scaleFactor * (int)cap.get(CV_CAP_PROP_FRAME_WIDTH); }
 	int height() { return scaleFactor * (int)cap.get(CV_CAP_PROP_FRAME_HEIGHT); }

@@ -1,21 +1,21 @@
 #include "stdafx.h"
-#include "WebcamApp.h"
+#include "VideoApp.h"
 
 using namespace Halide;
 
-WebcamApp::WebcamApp(int scaleFactor) : scaleFactor(scaleFactor), cap(0)
+VideoApp::VideoApp(int scaleFactor) : scaleFactor(scaleFactor), cap(0)
 {
 	if (!cap.isOpened())
 		throw std::exception("Cannot open webcam.");
 }
 
-WebcamApp::WebcamApp(std::string filename) : cap(filename)
+VideoApp::VideoApp(std::string filename) : cap(filename)
 {
 	if (!cap.isOpened())
 		throw std::exception("Cannot open file.");
 }
 
-Image<float> WebcamApp::readFrame()
+Image<float> VideoApp::readFrame()
 {
 	static Func convert("convertFromMat");
 	static ImageParam ip(UInt(8), 3);

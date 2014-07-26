@@ -1,0 +1,50 @@
+#pragma once
+
+// Extern function to copy data to an external circular buffer of images.
+extern "C" __declspec(dllexport) int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out);
+
+// Returns initialSize / 2^level. Used for pyramids.
+inline int scaleSize(int initialSize, int level)
+{
+	while (--level >= 0)
+		initialSize /= 2;
+	return initialSize;
+}
+
+// Downsample with a 1 2 1 filter
+template<typename F>
+Halide::Func downsample(F f)
+{
+	Halide::Func downx("downx"), downy("downy");
+	Halide::Var x, y;
+
+	downx(x, y, Halide::_) = (f(2 * x - 1, y, Halide::_) + 2.0f * f(2 * x, y, Halide::_) + f(2 * x + 1, y, Halide::_)) / 4.0f;
+	downy(x, y, Halide::_) = (downx(x, 2 * y - 1, Halide::_) + 2.0f * downx(x, 2 * y, Halide::_) + downx(x, 2 * y + 1, Halide::_)) / 4.0f;
+
+	return downy;
+}
+
+// Upsample using bilinear interpolation
+template<typename F>
+Halide::Func upsample(F f)
+{
+	Halide::Func upx("upx"), upy("upy");
+	Halide::Var x, y;
+
+	upx(x, y, Halide::_) = 0.25f * f((x / 2) - 1 + 2 * (x % 2), y, Halide::_) + 0.75f * f(x / 2, y, Halide::_);
+	upy(x, y, Halide::_) = 0.25f * upx(x, (y / 2) - 1 + 2 * (y % 2), Halide::_) + 0.75f * upx(x, y / 2, Halide::_);
+
+	return upy;
+}
+
+inline Halide::Func clipToEdges(Halide::Image<float> im)
+{
+	Halide::Var x, y;
+	return lambda(x, y, Halide::_, im(clamp(x, 0, im.width() - 1), clamp(y, 0, im.height() - 1), Halide::_));
+}
+
+inline Halide::Func clipToEdges(Halide::Func f, int width, int height)
+{
+	Halide::Var x, y;
+	return lambda(x, y, Halide::_, f(clamp(x, 0, width - 1), clamp(y, 0, height - 1), Halide::_));
+}

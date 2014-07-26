@@ -21,13 +21,22 @@
     <ClInclude Include="targetver.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="WebcamApp.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="clock.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="NamedWindow.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EulerianMagnifier.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Util.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="VideoApp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RieszMagnifier.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -38,10 +47,19 @@
     <ClCompile Include="HalideApps.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="WebcamApp.cpp">
+    <ClCompile Include="NamedWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="NamedWindow.cpp">
+    <ClCompile Include="EulerianMagnifier.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Util.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="VideoApp.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RieszMagnifier.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
