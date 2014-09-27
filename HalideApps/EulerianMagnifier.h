@@ -5,15 +5,14 @@
 class EulerianMagnifier
 {
 public:
-	EulerianMagnifier(VideoApp app, int pyramidLevels = 5);
-	void process(Halide::Image<float> frame, Halide::Image<float> out);
+	EulerianMagnifier(VideoApp app, int pyramidLevels, const std::vector<float> alphaValues);
+	void process(const Halide::Image<float>& frame, const Halide::Image<float>& out);
 
 private:
-	const int CIRCBUFFER_SIZE = 5;
+	const static int CIRCBUFFER_SIZE = 5;
 
 	VideoApp app;
 	int pyramidLevels;
-	std::vector<int> alphaValues;
 
 	Halide::ImageParam input;
 	Halide::Param<int> pParam;

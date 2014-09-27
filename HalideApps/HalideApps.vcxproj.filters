@@ -33,10 +33,13 @@
     <ClInclude Include="Util.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="VideoApp.h">
+    <ClInclude Include="RieszMagnifier.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="RieszMagnifier.h">
+    <ClInclude Include="filter_util.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="VideoApp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -60,6 +63,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RieszMagnifier.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="filter_util.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

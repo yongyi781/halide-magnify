@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "Util.h"
 
+using namespace Halide;
+
 int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 {
 	if (in->host == nullptr || out->host == nullptr)
@@ -34,4 +36,31 @@ int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 		}
 	}
 	return 0;
+}
+
+std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name)
+{
+	std::vector<Halide::Func> f(pyramidLevels);
+	for (int j = 0; j < pyramidLevels; j++)
+	{
+		f[j] = Halide::Func(name + std::to_string(j));
+	}
+	return f;
+}
+
+Func copyToCircularBuffer(Func input, const Image<float>& buffer, Param<int> pParam, std::string name)
+{
+	Func f(name);
+	Param<buffer_t*> copyToParam;
+	copyToParam.set(buffer.raw_buffer());
+	f.define_extern("copyFloat32", { pParam, copyToParam, input }, Float(32), 2);
+	return f;
+}
+
+std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Func>& input, const std::vector<Image<float>>& buffer, Param<int> pParam, std::string name)
+{
+	std::vector<Func> fPyr(pyramidLevels);
+	for (int j = 0; j < pyramidLevels; j++)
+		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], pParam, name + "_" + std::to_string(j));
+	return fPyr;
 }

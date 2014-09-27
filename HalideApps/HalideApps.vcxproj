@@ -145,6 +145,7 @@
   <ItemGroup>
     <ClInclude Include="clock.h" />
     <ClInclude Include="EulerianMagnifier.h" />
+    <ClInclude Include="filter_util.h" />
     <ClInclude Include="RieszMagnifier.h" />
     <ClInclude Include="Util.h" />
     <ClInclude Include="NamedWindow.h" />
@@ -154,6 +155,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="EulerianMagnifier.cpp" />
+    <ClCompile Include="filter_util.cpp" />
     <ClCompile Include="RieszMagnifier.cpp" />
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="HalideApps.cpp" />

@@ -9,7 +9,7 @@ VideoApp::VideoApp(int scaleFactor) : scaleFactor(scaleFactor), cap(0)
 		throw std::exception("Cannot open webcam.");
 }
 
-VideoApp::VideoApp(std::string filename) : cap(filename)
+VideoApp::VideoApp(std::string filename) : scaleFactor(1), cap(filename)
 {
 	if (!cap.isOpened())
 		throw std::exception("Cannot open file.");

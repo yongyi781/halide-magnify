@@ -2,12 +2,12 @@
 #include "EulerianMagnifier.h"
 #include "Util.h"
 
-#define TILE 1
+#define TILE 0
 
 using namespace Halide;
 
-EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels) : app(app), pyramidLevels(pyramidLevels),
-	input(ImageParam(Float(32), 3)), alphaValues({ 0, 0, 2, 5, 10, 10, 10, 10, 10 }), output(Func("output"))
+EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels, const std::vector<float> alphaValues) : app(app), pyramidLevels(pyramidLevels),
+	input(ImageParam(Float(32), 3)), output(Func("output"))
 {
 	Var x("x"), y("y"), c("c");
 
@@ -92,7 +92,7 @@ EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels) : app(app)
 	// Schedule
 	Var xi("xi"), yi("yi");
 
-	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).vectorize(x, 4).parallel(y, 4);
+	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).parallel(y, 4).vectorize(x, 4);
 #if TILE
 	output.tile(x, y, xi, yi, app.width() / 8, app.height() / 8);
 #endif
@@ -129,9 +129,9 @@ EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels) : app(app)
 
 		if (j <= 4)
 		{
-			outGPyramid[j].vectorize(x, 4).parallel(y, 4);
-			lPyramid[j].vectorize(x, 4).parallel(y, 4);
-			gPyramid[j].vectorize(x, 4).parallel(y, 4);
+			outGPyramid[j].parallel(y, 4).vectorize(x, 4);
+			lPyramid[j].parallel(y, 4).vectorize(x, 4);
+			gPyramid[j].parallel(y, 4).vectorize(x, 4);
 		}
 		else
 		{
@@ -146,7 +146,7 @@ EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels) : app(app)
 	std::cout << "done!" << std::endl;
 }
 
-void EulerianMagnifier::process(Image<float> frame, Image<float> out)
+void EulerianMagnifier::process(const Image<float>& frame, const Image<float>& out)
 {
 	pParam.set(frameCounter % CIRCBUFFER_SIZE);
 	input.set(frame);
