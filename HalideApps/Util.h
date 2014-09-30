@@ -34,6 +34,28 @@ Halide::Func downsample5(F f)
 	return downy;
 }
 
+// Downsample with a Gaussian 5x5 filter
+template<typename F>
+Halide::Func downsampleG5(F f)
+{
+	Halide::Func downx("downx"), downy("downy");
+	Halide::Var x, y;
+
+	float coeffs[] = { 0.054488684549644346f, 0.24420134200323348f, 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
+
+	Expr xExpr = 0.0f;
+	for (int i = 0; i < 5; i++)
+		xExpr += coeffs[i] * f(2 * x - 2 + i, y, Halide::_);
+	downx(x, y, Halide::_) = xExpr;
+
+	Expr yExpr = 0.0f;
+	for (int i = 0; i < 5; i++)
+		yExpr += coeffs[i] * downx(x, 2 * y - 2 + i, Halide::_);
+	downy(x, y, Halide::_) = yExpr;
+
+	return downy;
+}
+
 // Upsample using bilinear interpolation
 template<typename F>
 Halide::Func upsample(F f)

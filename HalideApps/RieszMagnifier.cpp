@@ -39,7 +39,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	gPyramid[0](x, y) = grey(x, y);
 	for (int j = 1; j < pyramidLevels; j++)
 	{
-		gPyramid[j](x, y) = downsample5(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
+		gPyramid[j](x, y) = downsampleG5(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
 	}
 
 	// Laplacian pyramid
@@ -118,7 +118,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		changeC[j](x, y) = (float)filterB[0] * phaseCBuffer[j](x, y) + lowpass1CBuffer[j](x, y);
 		lowpass1C[j](x, y) = (float)filterB[1] * phaseCBuffer[j](x, y) + lowpass2CBuffer[j](x, y) - (float)filterA[1] * changeC[j](x, y);
 		lowpass2C[j](x, y) = (float)filterB[2] * phaseCBuffer[j](x, y) - (float)filterA[2] * changeC[j](x, y);
-		
+
 		changeS[j](x, y) = (float)filterB[0] * phaseSBuffer[j](x, y) + lowpass1SBuffer[j](x, y);
 		lowpass1S[j](x, y) = (float)filterB[1] * phaseSBuffer[j](x, y) + lowpass2SBuffer[j](x, y) - (float)filterA[1] * changeS[j](x, y);
 		lowpass2S[j](x, y) = (float)filterB[2] * phaseSBuffer[j](x, y) - (float)filterA[2] * changeS[j](x, y);
@@ -129,20 +129,30 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	std::vector<Func> lowpass2SCopy = copyPyramidToCircularBuffer(pyramidLevels, lowpass2S, lowpass2SBuffer, zero, "lowpass2SCopy");
 
 	std::vector<Func> changeTuple = makeFuncArray(pyramidLevels, "changeTuple"),
-		changeCompute = makeFuncArray(pyramidLevels, "changeCompute");
+		changePair = makeFuncArray(pyramidLevels, "changePair");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
 		changeTuple[j](x, y) = Tuple({
 			phaseCCopy[j](x, y), changeC[j](x, y), lowpass1CCopy[j](x, y), lowpass2CCopy[j](x, y),
 			phaseSCopy[j](x, y), changeS[j](x, y), lowpass1SCopy[j](x, y), lowpass2SCopy[j](x, y)
 		});
-		changeCompute[j](x, y) = { changeTuple[j](x, y)[1], changeTuple[j](x, y)[5] };
+		changePair[j](x, y) = { changeTuple[j](x, y)[1], changeTuple[j](x, y)[5] };
+	}
+
+	std::vector<Func> magC = makeFuncArray(pyramidLevels, "magC"),
+		magC2 = makeFuncArray(pyramidLevels, "magC2");
+	for (int j = 0; j < pyramidLevels; j++)
+	{
+		magC[j](x, y) = hypot(changePair[j](x, y)[0], changePair[j](x, y)[1]) + 1e-6f;
+		magC2[j](x, y) = 30.0f * magC[j](x, y);
 	}
 
 	std::vector<Func> outLPyramid = makeFuncArray(pyramidLevels, "outLPyramid");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		outLPyramid[j](x, y) = lPyramid[j](x, y) + (bandAlphas[j] == 0.0f ? 0.0f : bandAlphas[j] * changeCompute[j](x, y)[0]);
+		Expr pair = (r1Pyramid[j](x, y) * changePair[j](x, y)[0] + r2Pyramid[j](x, y) * changePair[j](x, y)[1]) / magC[j](x, y);
+		// TODO spatial regularization
+		outLPyramid[j](x, y) = (lPyramid[j](x, y) * cos(magC2[j](x, y))) - pair * sin(magC2[j](x, y));
 	}
 
 	std::vector<Func> outGPyramid = makeFuncArray(pyramidLevels, "outGPyramid");
@@ -154,7 +164,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 
 	//output(x, y, c) = select(r1Pyramid[0](x, y) <= 0.008f && r2Pyramid[0](x, y) <= 0.008f, 0.2f, clamp(0.5f + atan2(r2Pyramid[0](x, y), r1Pyramid[0](x, y)) / (float)M_2_PI, 0.0f, 1.0f));
 	//output(x, y, c) = clamp(0.5f + sqrt(r1Pyramid[1](x / 2, y / 2) * r1Pyramid[1](x / 2, y / 2) + r2Pyramid[1](x / 2, y / 2) * r2Pyramid[1](x / 2, y / 2)), 0.0f, 1.0f);
-	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (0.01f + grey(x, y)), 0.0f, 1.0f);
+	output(x, y, c) = clamp(outGPyramid[0](x, y) * input(x, y, c) / (grey(x, y) + 0.01f), 0.0f, 1.0f);
 
 	// Schedule
 	output.reorder(c, x, y).bound(c, 0, 3).unroll(c).parallel(y, 4).vectorize(x, 4);
@@ -162,6 +172,8 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	{
 		outGPyramid[j].compute_root();
 		outLPyramid[j].compute_root();
+		magC[j].compute_root();
+		changePair[j].compute_root();
 		changeTuple[j].compute_root();
 		lowpass1CCopy[j].compute_root();
 		lowpass2CCopy[j].compute_root();
@@ -172,6 +184,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		lowpass1S[j].compute_root();
 		lowpass2S[j].compute_root();
 		changeC[j].compute_root();
+		changeS[j].compute_root();
 		phaseCCopy[j].compute_root();
 		phaseSCopy[j].compute_root();
 		phaseC[j].compute_root();
@@ -216,7 +229,7 @@ void RieszMagnifier::process(const Halide::Image<float>& frame, const Image<floa
 
 void RieszMagnifier::computeFilter()
 {
-	const double fps = 30.0;
+	const double fps = 11.0;
 	double lowCutoff = freqCenter - freqWidth / 2;
 	double highCutoff = freqCenter + freqWidth / 2;
 

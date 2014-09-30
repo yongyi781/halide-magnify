@@ -27,6 +27,7 @@ private:
 
 	Halide::ImageParam input;
 	Halide::Param<int> pParam;
+	Halide::Param<bool> isInit;
 	Halide::Func output;
 
 	std::vector<Halide::Image<float>> pyramidBuffer;
