@@ -129,7 +129,7 @@ int main_magnify()
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	VideoApp app;
-	RieszMagnifier magnifier(app, 7, 2.25, 1.75);
+	RieszMagnifier magnifier(app, 7, 2.25, 3.5);
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);

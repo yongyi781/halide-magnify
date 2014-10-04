@@ -64,3 +64,46 @@ std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vect
 		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], pParam, name + "_" + std::to_string(j));
 	return fPyr;
 }
+
+Image<float> transpose(const Image<float>& im)
+{
+	Image<float> transposed(im.height(), im.width());
+	for (int yi = 0; yi < im.height(); ++yi)
+		for (int xi = 0; xi < im.width(); ++xi)
+			transposed(yi, xi) = im(xi, yi);
+	return transposed;
+}
+
+Image<float> horiGaussKernel(float sigma)
+{
+	Image<float> out(6 * (int)sigma + 1, 1);
+	int center = 3 * (int)sigma;
+	out(center) = 1.f;
+	float total = 1.f;
+	for (int xi = 1; xi <= center; ++xi)
+		total += 2 * (out(center + xi) = out(center - xi) = exp(-xi * xi / (2.f * sigma * sigma)));
+	for (int i = 0; i < out.width(); ++i)
+		out(i) /= total;
+	return out;
+}
+
+Func convolve(Func in, Image<float> kernel)
+{
+	Func f;
+	Var x, y, c;
+	RDom r(kernel);
+	if (in.dimensions() >= 3)
+		f(x, y, c) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2, c));
+	else
+		f(x, y) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2));
+	return f;
+}
+
+Func gaussianBlur(Func in, float sigma, bool use2DKernel)
+{
+	Image<float> kernel = horiGaussKernel(sigma);
+	Func f = convolve(in, kernel);
+	if (!use2DKernel)
+		f.compute_root();
+	return convolve(f, transpose(kernel));
+}

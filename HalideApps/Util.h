@@ -92,3 +92,5 @@ std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name);
 Halide::Func copyToCircularBuffer(Halide::Func input, const Halide::Image<float>& buffer, Halide::Param<int> pParam, std::string name);
 
 std::vector<Halide::Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Halide::Func>& input, const std::vector<Halide::Image<float>>& buffer, Halide::Param<int> pParam, std::string name);
+
+Halide::Func gaussianBlur(Halide::Func in, float sigma, bool use2DKernel = false);
