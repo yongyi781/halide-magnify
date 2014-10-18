@@ -128,8 +128,10 @@ int main_magnify()
 {
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
-	VideoApp app;
-	RieszMagnifier magnifier(app, 7, 2.25, 3.5);
+	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
+	VideoApp app(filename3);
+	RieszMagnifier magnifier(app, 6, 2.25, 1.75);
+	//EulerianMagnifier magnifier(app, 6, {0.5f, 1, 2, 5, 10, 10, 10, 10 });
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);
@@ -188,7 +190,7 @@ int main_synthetic()
 		in[i] = gen.realize(WIDTH, HEIGHT);
 	}
 
-	cv::VideoWriter writer("video.avi", CV_FOURCC_PROMPT, 60.0, { WIDTH, HEIGHT });
+	cv::VideoWriter writer("video.avi", -1, 60.0, { WIDTH, HEIGHT });
 	for (int i = 0; i < N; i++)
 		writer.write(toMat2d(in[i]));
 	writer.release();

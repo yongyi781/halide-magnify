@@ -76,8 +76,8 @@ Image<float> transpose(const Image<float>& im)
 
 Image<float> horiGaussKernel(float sigma)
 {
-	Image<float> out(6 * (int)sigma + 1, 1);
-	int center = 3 * (int)sigma;
+	Image<float> out(2 * (int)sigma + 1, 1);
+	int center = (int)sigma;
 	out(center) = 1.f;
 	float total = 1.f;
 	for (int xi = 1; xi <= center; ++xi)
@@ -87,23 +87,18 @@ Image<float> horiGaussKernel(float sigma)
 	return out;
 }
 
-Func convolve(Func in, Image<float> kernel)
+// 2D convolve
+Func convolve(Func in, Image<float> kernel, Var x, Var y)
 {
 	Func f;
-	Var x, y, c;
 	RDom r(kernel);
-	if (in.dimensions() >= 3)
-		f(x, y, c) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2, c));
-	else
-		f(x, y) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2));
+	f(x, y) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2));
 	return f;
 }
 
-Func gaussianBlur(Func in, float sigma, bool use2DKernel)
+std::pair<Func, Func> gaussianBlur(Func in, float sigma, Var x, Var y)
 {
 	Image<float> kernel = horiGaussKernel(sigma);
-	Func f = convolve(in, kernel);
-	if (!use2DKernel)
-		f.compute_root();
-	return convolve(f, transpose(kernel));
+	Func f = convolve(in, kernel, x, y);
+	return std::make_pair(f, convolve(f, transpose(kernel), x, y));
 }

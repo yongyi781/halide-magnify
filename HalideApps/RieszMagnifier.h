@@ -8,7 +8,6 @@ public:
 	RieszMagnifier(VideoApp app, int pyramidLevels = 5, double freqCenter = 2.0, double freqWidth = 0.5);
 	void process(const Halide::Image<float>& frame, const Halide::Image<float>& out);
 	void computeFilter();
-	void computePerBandAlpha();
 
 private:
 	static const int CIRCBUFFER_SIZE = 2;
