@@ -129,8 +129,8 @@ int main_magnify()
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
-	VideoApp app(filename3);
-	RieszMagnifier magnifier(app, 6, 2.25, 1.75);
+	VideoApp app;
+	RieszMagnifier magnifier(app, 1, 2.25, 3.5);
 	//EulerianMagnifier magnifier(app, 6, {0.5f, 1, 2, 5, 10, 10, 10, 10 });
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
@@ -152,7 +152,7 @@ int main_magnify()
 		double t = currentTime();
 		// --- timing ---
 		magnifier.process(frame, out);
-		std::cout << out(3, 3) << std::endl;
+		std::cout << out(175, 226) << std::endl;
 		// --- end timing ---
 		double diff = currentTime() - t;
 		inputWindow.showImage(frame);

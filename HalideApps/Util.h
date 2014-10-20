@@ -41,17 +41,15 @@ Halide::Func downsampleG5(F f)
 	Halide::Func downx("downx"), downy("downy");
 	Halide::Var x, y;
 
-	float coeffs[] = { 0.054488684549644346f, 0.24420134200323348f, 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
+	float coeffs[] = { 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
 
-	Expr xExpr = 0.0f;
-	for (int i = 0; i < 5; i++)
-		xExpr += coeffs[i] * f(2 * x - 2 + i, y, Halide::_);
-	downx(x, y, Halide::_) = xExpr;
+	downx(x, y, Halide::_) = coeffs[0] * f(2 * x, y, Halide::_)
+		+ coeffs[1] * (f(2 * x - 1, y, Halide::_) + f(2 * x + 1, y, Halide::_))
+		+ coeffs[2] * (f(2 * x - 2, y, Halide::_) + f(2 * x + 2, y, Halide::_));;
 
-	Expr yExpr = 0.0f;
-	for (int i = 0; i < 5; i++)
-		yExpr += coeffs[i] * downx(x, 2 * y - 2 + i, Halide::_);
-	downy(x, y, Halide::_) = yExpr;
+	downy(x, y, Halide::_) = coeffs[0] * downx(x, 2 * y, Halide::_)
+		+ coeffs[1] * (downx(x, 2 * y - 1, Halide::_) + downx(x, 2 * y + 1, Halide::_))
+		+ coeffs[2] * (downx(x, 2 * y - 2, Halide::_) + downx(x, 2 * y + 2, Halide::_));;
 
 	return downy;
 }

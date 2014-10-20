@@ -5,9 +5,10 @@
 class RieszMagnifier
 {
 public:
-	RieszMagnifier(VideoApp app, int pyramidLevels = 5, double freqCenter = 2.0, double freqWidth = 0.5);
+	RieszMagnifier(VideoApp app, int pyramidLevels = 5, double freqCenter = 2.0, double freqWidth = 0.5, float alpha = 30.0f);
 	void process(const Halide::Image<float>& frame, const Halide::Image<float>& out);
 	void computeFilter();
+	void computeBandAlphas();
 
 private:
 	static const int CIRCBUFFER_SIZE = 2;
@@ -17,8 +18,7 @@ private:
 	double freqWidth;
 	std::vector<double> filterA;
 	std::vector<double> filterB;
-	float alpha = 30;
-	float lambdaC = 50;
+	float alpha;
 	std::vector<float> bandAlphas;
 
 	VideoApp app;
