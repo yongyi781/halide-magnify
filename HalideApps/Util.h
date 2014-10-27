@@ -28,8 +28,14 @@ Halide::Func downsample5(F f)
 	Halide::Func downx("downx"), downy("downy");
 	Halide::Var x, y;
 
-	downx(x, y, Halide::_) = (f(2 * x - 2, y, Halide::_) + 4 * f(2 * x - 1, y, Halide::_) + 6 * f(2 * x, y, Halide::_) + 4 * f(2 * x + 1, y, Halide::_) + f(2 * x + 2, y, Halide::_)) / 16.0f;
-	downy(x, y, Halide::_) = (downx(x, 2 * y - 2, Halide::_) + 4 * downx(x, 2 * y - 1, Halide::_) + 6 * downx(x, 2 * y, Halide::_) + 4 * downx(x, 2 * y + 1, Halide::_) + downx(x, 2 * y + 2, Halide::_)) / 16.0f;
+	downx(x, y, Halide::_) =
+		(f(2 * x - 2, y, Halide::_) + f(2 * x + 2, y, Halide::_)
+		+ 4 * (f(2 * x - 1, y, Halide::_) + f(2 * x + 1, y, Halide::_))
+		+ 6 * f(2 * x, y, Halide::_)) / 16;
+	downy(x, y, Halide::_) =
+		(downx(x, 2 * y - 2, Halide::_) + downx(x, 2 * y + 2, Halide::_)
+		+ 4 * (downx(x, 2 * y - 1, Halide::_) + downx(x, 2 * y + 1, Halide::_))
+		+ 6 * downx(x, 2 * y, Halide::_)) / 16;
 
 	return downy;
 }
