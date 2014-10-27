@@ -162,3 +162,4 @@ HalideApps/output.c
 *.jpg
 *.png
 HalideApps/profile.txt
+*.avi

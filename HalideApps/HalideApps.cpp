@@ -152,7 +152,7 @@ int main_magnify()
 		double t = currentTime();
 		// --- timing ---
 		magnifier.process(frame, out);
-		std::cout << out(175, 226) << std::endl;
+		//std::cout << out(175, 226) << std::endl;
 		// --- end timing ---
 		double diff = currentTime() - t;
 		inputWindow.showImage(frame);
@@ -162,7 +162,8 @@ int main_magnify()
 		if (frameCounter >= 0)
 		{
 			timeSum += diff / 1000.0;
-			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)" << std::endl;
+			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)"
+				<< "\t(" << 1000 * timeSum / (frameCounter + 1) << " ms)" << std::endl;
 		}
 		else
 		{

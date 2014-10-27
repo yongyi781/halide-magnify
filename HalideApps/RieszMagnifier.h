@@ -30,8 +30,6 @@ private:
 	Halide::Func output;
 
 	std::vector<Halide::Image<float>> pyramidBuffer;
-	std::vector<Halide::Image<float>> r1Buffer;
-	std::vector<Halide::Image<float>> r2Buffer;
 	std::vector<Halide::Image<float>> phaseCBuffer;
 	std::vector<Halide::Image<float>> phaseSBuffer;
 	std::vector<Halide::Image<float>> lowpass1CBuffer;
