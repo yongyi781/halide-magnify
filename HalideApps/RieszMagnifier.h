@@ -9,17 +9,21 @@ public:
 	void process(const Halide::Image<float>& frame, const Halide::Image<float>& out);
 	void computeFilter();
 	void computeBandAlphas();
+	void computeBandSigmas();
 
 private:
 	static const int CIRCBUFFER_SIZE = 2;
 
-	// temporal filtering
+	// Temporal filtering
 	double freqCenter;
 	double freqWidth;
 	std::vector<double> filterA;
 	std::vector<double> filterB;
 	float alpha;
-	std::vector<float> bandAlphas;
+	std::vector<float> bandAlpha;
+
+	// Spatial regularization
+	std::vector<float> bandSigma;
 
 	VideoApp app;
 	int pyramidLevels;

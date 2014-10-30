@@ -2,7 +2,7 @@
 #include "EulerianMagnifier.h"
 #include "Util.h"
 
-#define TILE 0
+#define TILE 1
 
 using namespace Halide;
 
@@ -94,7 +94,7 @@ EulerianMagnifier::EulerianMagnifier(VideoApp app, int pyramidLevels, const std:
 
 	output.reorder(c, x, y).bound(c, 0, app.channels()).unroll(c).parallel(y, 4).vectorize(x, 4);
 #if TILE
-	output.tile(x, y, xi, yi, app.width() / 8, app.height() / 8);
+	output.tile(x, y, xi, yi, 40, 30);
 #endif
 
 	for (int j = 0; j < pyramidLevels; j++)

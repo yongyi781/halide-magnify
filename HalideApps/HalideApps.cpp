@@ -130,8 +130,8 @@ int main_magnify()
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
 	VideoApp app;
-	RieszMagnifier magnifier(app, 1, 2.25, 3.5);
-	//EulerianMagnifier magnifier(app, 6, {0.5f, 1, 2, 5, 10, 10, 10, 10 });
+	RieszMagnifier magnifier(app, 7, 2.25, 1.0);
+	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);
