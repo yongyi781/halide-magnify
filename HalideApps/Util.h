@@ -1,5 +1,7 @@
 #pragma once
 
+const float gaussian5Coeffs[] = { 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
+
 // Returns initialSize / 2^level. Used for pyramids.
 inline int scaleSize(int initialSize, int level)
 {
@@ -9,8 +11,7 @@ inline int scaleSize(int initialSize, int level)
 }
 
 // Downsample with a 1 2 1 filter
-template<typename F>
-Halide::Func downsample(F f)
+inline Halide::Func downsample(Halide::Func f)
 {
 	Halide::Func downx("downx"), downy("downy");
 	Halide::Var x, y;
@@ -22,8 +23,7 @@ Halide::Func downsample(F f)
 }
 
 // Downsample with a 1 4 6 4 1 filter
-template<typename F>
-Halide::Func downsample5(F f)
+inline Halide::Func downsample5(Halide::Func f)
 {
 	Halide::Func downx("downx"), downy("downy");
 	Halide::Var x, y;
@@ -40,35 +40,66 @@ Halide::Func downsample5(F f)
 	return downy;
 }
 
-// Downsample with a Gaussian 5x5 filter
-template<typename F>
-Halide::Func downsampleG5(F f)
+// Downsample with a Gaussian 5x5 filter in x direction
+inline Halide::Func downsampleG5X(Halide::Func f)
 {
-	Halide::Func downx("downx"), downy("downy");
+	Halide::Func downx("downx");
 	Halide::Var x, y;
 
-	float coeffs[] = { 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
+	downx(x, y, Halide::_) = gaussian5Coeffs[0] * f(2 * x, y, Halide::_)
+		+ gaussian5Coeffs[1] * (f(2 * x - 1, y, Halide::_) + f(2 * x + 1, y, Halide::_))
+		+ gaussian5Coeffs[2] * (f(2 * x - 2, y, Halide::_) + f(2 * x + 2, y, Halide::_));
 
-	downx(x, y, Halide::_) = coeffs[0] * f(2 * x, y, Halide::_)
-		+ coeffs[1] * (f(2 * x - 1, y, Halide::_) + f(2 * x + 1, y, Halide::_))
-		+ coeffs[2] * (f(2 * x - 2, y, Halide::_) + f(2 * x + 2, y, Halide::_));;
+	return downx;
+}
 
-	downy(x, y, Halide::_) = coeffs[0] * downx(x, 2 * y, Halide::_)
-		+ coeffs[1] * (downx(x, 2 * y - 1, Halide::_) + downx(x, 2 * y + 1, Halide::_))
-		+ coeffs[2] * (downx(x, 2 * y - 2, Halide::_) + downx(x, 2 * y + 2, Halide::_));;
+// Downsample with a Gaussian 5x5 filter in y direction
+inline Halide::Func downsampleG5Y(Halide::Func f)
+{
+	Halide::Func downy("downy");
+	Halide::Var x, y;
+
+	downy(x, y, Halide::_) = gaussian5Coeffs[0] * f(x, 2 * y, Halide::_)
+		+ gaussian5Coeffs[1] * (f(x, 2 * y - 1, Halide::_) + f(x, 2 * y + 1, Halide::_))
+		+ gaussian5Coeffs[2] * (f(x, 2 * y - 2, Halide::_) + f(x, 2 * y + 2, Halide::_));
 
 	return downy;
 }
 
 // Upsample using bilinear interpolation
-template<typename F>
-Halide::Func upsample(F f)
+inline Halide::Func upsample(Halide::Func f)
 {
 	Halide::Func upx("upx"), upy("upy");
 	Halide::Var x, y;
 
 	upx(x, y, Halide::_) = 0.25f * f((x / 2) - 1 + 2 * (x % 2), y, Halide::_) + 0.75f * f(x / 2, y, Halide::_);
 	upy(x, y, Halide::_) = 0.25f * upx(x, (y / 2) - 1 + 2 * (y % 2), Halide::_) + 0.75f * upx(x, y / 2, Halide::_);
+
+	return upy;
+}
+
+// Upsample using Gaussian upsampling in x direction
+inline Halide::Func upsampleG5X(Halide::Func f)
+{
+	Halide::Func upx("upx");
+	Halide::Var x, y;
+
+	upx(x, y, Halide::_) = gaussian5Coeffs[0] * f(x / 2, y, Halide::_)
+		+ gaussian5Coeffs[1] * (f(x / 2 - 1, y, Halide::_) + f(x / 2 + 1, y, Halide::_))
+		+ gaussian5Coeffs[2] * (f(x / 2 - 2, y, Halide::_) + f(x / 2 + 2, y, Halide::_));
+
+	return upx;
+}
+
+// Upsample using Gaussian upsampling in y direction
+inline Halide::Func upsampleG5Y(Halide::Func f)
+{
+	Halide::Func upy("upy");
+	Halide::Var x, y;
+
+	upy(x, y, Halide::_) = gaussian5Coeffs[0] * f(x, y / 2, Halide::_)
+		+ gaussian5Coeffs[1] * (f(x, y / 2 - 1, Halide::_) + f(x, y / 2 + 1, Halide::_))
+		+ gaussian5Coeffs[2] * (f(x, y / 2 - 2, Halide::_) + f(x, y / 2 + 2, Halide::_));
 
 	return upy;
 }
@@ -97,4 +128,5 @@ Halide::Func copyToCircularBuffer(Halide::Func input, const Halide::Image<float>
 
 std::vector<Halide::Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Halide::Func>& input, const std::vector<Halide::Image<float>>& buffer, Halide::Param<int> pParam, std::string name);
 
-std::pair<Halide::Func, Halide::Func> gaussianBlur(Halide::Func in, float sigma, Halide::Var x = Halide::Var(), Halide::Var y = Halide::Var());
+Halide::Func gaussianBlurX(Halide::Func in, float sigma);
+Halide::Func gaussianBlurY(Halide::Func in, float sigma);

@@ -3,6 +3,8 @@
 
 using namespace Halide;
 
+#define TRACE 0
+
 int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 {
 	if (in->host == nullptr || out->host == nullptr)
@@ -88,17 +90,21 @@ Image<float> horiGaussKernel(float sigma)
 }
 
 // 2D convolve
-Func convolve(Func in, Image<float> kernel, Var x, Var y)
+Func convolve(Func in, Image<float> kernel, std::string name)
 {
-	Func f;
+	Func f(name);
+	Var x, y;
 	RDom r(kernel);
 	f(x, y) = sum(kernel(r.x, r.y) * in(x + r.x - kernel.width() / 2, y + r.y - kernel.height() / 2));
 	return f;
 }
 
-std::pair<Func, Func> gaussianBlur(Func in, float sigma, Var x, Var y)
+Func gaussianBlurX(Func in, float sigma)
 {
-	Image<float> kernel = horiGaussKernel(sigma);
-	Func f = convolve(in, kernel, x, y);
-	return std::make_pair(f, convolve(f, transpose(kernel), x, y));
+	return convolve(in, horiGaussKernel(sigma), "gaussianBlurX");
+}
+
+Func gaussianBlurY(Func in, float sigma)
+{
+	return convolve(in, transpose(horiGaussKernel(sigma)), "gaussianBlurY");
 }

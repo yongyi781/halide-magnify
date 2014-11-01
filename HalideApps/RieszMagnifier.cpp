@@ -21,8 +21,8 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	{
 		pyramidBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
 
-		phaseCBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j)));
-		phaseSBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j)));
+		phaseCBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
+		phaseSBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
 		lowpass1CBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
 		lowpass2CBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
 		lowpass1SBuffer.push_back(Image<float>(scaleSize(app.width(), j), scaleSize(app.height(), j), CIRCBUFFER_SIZE));
@@ -44,19 +44,25 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	cr(x, y) = 0.5f * input(x, y, 0) - 0.418688f * input(x, y, 1) - 0.081312f * input(x, y, 2);
 
 	// Gaussian pyramid
-	std::vector<Func> gPyramid = makeFuncArray(pyramidLevels + 1, "gPyramid");
+	std::vector<Func>
+		gPyramidDownX = makeFuncArray(pyramidLevels + 1, "gPyramidDownX"),
+		gPyramid = makeFuncArray(pyramidLevels + 1, "gPyramid");
 	gPyramid[0](x, y) = grey(x, y);
 	for (int j = 1; j < gPyramid.size(); j++)
 	{
-		gPyramid[j](x, y) = downsample5(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
+		gPyramidDownX[j](x, y) = downsampleG5X(clipToEdges(gPyramid[j - 1], scaleSize(app.width(), j - 1), scaleSize(app.height(), j - 1)))(x, y);
+		gPyramid[j](x, y) = downsampleG5Y(gPyramidDownX[j])(x, y);
 	}
 
 	// Laplacian pyramid
-	std::vector<Func> lPyramid = makeFuncArray(pyramidLevels + 1, "lPyramid");
+	std::vector<Func>
+		lPyramidUpX = makeFuncArray(pyramidLevels, "lPyramidUpX"),
+		lPyramid = makeFuncArray(pyramidLevels + 1, "lPyramid");
 	lPyramid[pyramidLevels](x, y) = gPyramid[pyramidLevels](x, y);
 	for (int j = pyramidLevels - 1; j >= 0; j--)
 	{
-		lPyramid[j](x, y) = gPyramid[j](x, y) - upsample(clipToEdges(gPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
+		lPyramidUpX[j](x, y) = upsampleG5X(clipToEdges(gPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
+		lPyramid[j](x, y) = gPyramid[j](x, y) - upsampleG5Y(lPyramidUpX[j])(x, y);
 	}
 	std::vector<Func> lPyramidCopy = copyPyramidToCircularBuffer(pyramidLevels, lPyramid, pyramidBuffer, pParam, "lPyramidCopy");
 
@@ -125,12 +131,12 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		phaseS = makeFuncArray(pyramidLevels, "phaseS");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		phaseC[j](x, y) = qPhaseDiffC[j](x, y) + phaseCBuffer[j](x, y);
-		phaseS[j](x, y) = qPhaseDiffS[j](x, y) + phaseSBuffer[j](x, y);
+		phaseC[j](x, y) = qPhaseDiffC[j](x, y) + phaseCBuffer[j](x, y, (pParam + 1) % 2);
+		phaseS[j](x, y) = qPhaseDiffS[j](x, y) + phaseSBuffer[j](x, y, (pParam + 1) % 2);
 	}
 
-	std::vector<Func> phaseCCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseC, phaseCBuffer, zero, "phaseCCopy");
-	std::vector<Func> phaseSCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseS, phaseSBuffer, zero, "phaseSCopy");
+	std::vector<Func> phaseCCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseC, phaseCBuffer, pParam, "phaseCCopy");
+	std::vector<Func> phaseSCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseS, phaseSBuffer, pParam, "phaseSCopy");
 
 	std::vector<Func> changeC = makeFuncArray(pyramidLevels, "changeC"),
 		lowpass1C = makeFuncArray(pyramidLevels, "lowpass1C"),
@@ -142,12 +148,12 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 	{
 		// Linear filter. Order of evaluation here is important.
 		changeC[j](x, y) = (float)filterB[0] * phaseCCopy[j](x, y) + lowpass1CBuffer[j](x, y, (pParam + 1) % 2);
-		lowpass1C[j](x, y) = (float)filterB[1] * phaseCBuffer[j](x, y) + lowpass2CBuffer[j](x, y, (pParam + 1) % 2) - (float)filterA[1] * changeC[j](x, y);
-		lowpass2C[j](x, y) = (float)filterB[2] * phaseCBuffer[j](x, y) - (float)filterA[2] * changeC[j](x, y);
+		lowpass1C[j](x, y) = (float)filterB[1] * phaseCCopy[j](x, y) + lowpass2CBuffer[j](x, y, (pParam + 1) % 2) - (float)filterA[1] * changeC[j](x, y);
+		lowpass2C[j](x, y) = (float)filterB[2] * phaseCCopy[j](x, y) - (float)filterA[2] * changeC[j](x, y);
 
 		changeS[j](x, y) = (float)filterB[0] * phaseSCopy[j](x, y) + lowpass1SBuffer[j](x, y, (pParam + 1) % 2);
-		lowpass1S[j](x, y) = (float)filterB[1] * phaseSBuffer[j](x, y) + lowpass2SBuffer[j](x, y, (pParam + 1) % 2) - (float)filterA[1] * changeS[j](x, y);
-		lowpass2S[j](x, y) = (float)filterB[2] * phaseSBuffer[j](x, y) - (float)filterA[2] * changeS[j](x, y);
+		lowpass1S[j](x, y) = (float)filterB[1] * phaseSCopy[j](x, y) + lowpass2SBuffer[j](x, y, (pParam + 1) % 2) - (float)filterA[1] * changeS[j](x, y);
+		lowpass2S[j](x, y) = (float)filterB[2] * phaseSCopy[j](x, y) - (float)filterA[2] * changeS[j](x, y);
 	}
 	std::vector<Func> lowpass1CCopy = copyPyramidToCircularBuffer(pyramidLevels, lowpass1C, lowpass1CBuffer, pParam, "lowpass1CCopy");
 	std::vector<Func> lowpass2CCopy = copyPyramidToCircularBuffer(pyramidLevels, lowpass2C, lowpass2CBuffer, pParam, "lowpass2CCopy");
@@ -176,7 +182,6 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		ampRegX = makeFuncArray(pyramidLevels, "ampRegX"),
 		ampReg = makeFuncArray(pyramidLevels, "ampReg"),
 		magC = makeFuncArray(pyramidLevels, "magC"),
-		magC2 = makeFuncArray(pyramidLevels, "magC2"),
 		outLPyramid = makeFuncArray(pyramidLevels, "outLPyramid");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
@@ -186,17 +191,16 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 			+ r1Pyramid[j](x, y) * r1Pyramid[j](x, y)
 			+ r2Pyramid[j](x, y) * r2Pyramid[j](x, y)) + TINY;
 
-		std::tie(ampRegX[j], ampReg[j]) = gaussianBlur(clipToEdges(amp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma, x, y);
+		ampRegX[j](x, y) = gaussianBlurX(clipToEdges(amp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma)(x, y);
+		ampReg[j](x, y) = gaussianBlurY(ampRegX[j], sigma)(x, y);
 
 		changeCAmp[j](x, y) = changeC2[j](x, y) * amp[j](x, y);
-		Func tempC;
-		std::tie(changeCRegX[j], tempC) = gaussianBlur(clipToEdges(changeCAmp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma, x, y);
-		changeCReg[j](x, y) = tempC(x, y) / ampReg[j](x, y);
+		changeCRegX[j](x, y) = gaussianBlurX(clipToEdges(changeCAmp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma)(x, y);
+		changeCReg[j](x, y) = gaussianBlurY(changeCRegX[j], sigma)(x, y) / ampReg[j](x, y);
 
 		changeSAmp[j](x, y) = changeS2[j](x, y) * amp[j](x, y);
-		Func tempS;
-		std::tie(changeSRegX[j], tempS) = gaussianBlur(clipToEdges(changeSAmp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma, x, y);
-		changeSReg[j](x, y) = tempS(x, y) / ampReg[j](x, y);
+		changeSRegX[j](x, y) = gaussianBlurX(clipToEdges(changeSAmp[j], scaleSize(app.width(), j), scaleSize(app.height(), j)), sigma)(x, y);
+		changeSReg[j](x, y) = gaussianBlurY(changeSRegX[j], sigma)(x, y) / ampReg[j](x, y);
 
 		Expr creg = sigma == 0.0f ? changeC2[j](x, y) : changeCReg[j](x, y);
 		Expr sreg = sigma == 0.0f ? changeS2[j](x, y) : changeSReg[j](x, y);
@@ -206,11 +210,14 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		outLPyramid[j](x, y) = bandAlpha[j] == 0.0f ? lPyramid[j](x, y) : lPyramid[j](x, y) * cos(bandAlpha[j] * magC[j](x, y)) - pair * sin(bandAlpha[j] * magC[j](x, y));
 	}
 
-	std::vector<Func> outGPyramid = makeFuncArray(pyramidLevels + 1, "outGPyramid");
+	std::vector<Func>
+		outGPyramidUpX = makeFuncArray(pyramidLevels, "outGPyramidUpX"),
+		outGPyramid = makeFuncArray(pyramidLevels + 1, "outGPyramid");
 	outGPyramid[pyramidLevels](x, y) = lPyramid[pyramidLevels](x, y);
 	for (int j = pyramidLevels - 1; j >= 0; j--)
 	{
-		outGPyramid[j](x, y) = outLPyramid[j](x, y) + upsample(clipToEdges(outGPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
+		outGPyramidUpX[j](x, y) = upsampleG5X(clipToEdges(outGPyramid[j + 1], scaleSize(app.width(), j + 1), scaleSize(app.height(), j + 1)))(x, y);
+		outGPyramid[j](x, y) = outLPyramid[j](x, y) + upsampleG5Y(outGPyramidUpX[j])(x, y);
 	}
 
 	// YCrCb -> RGB
@@ -219,7 +226,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		c == 1, outGPyramid[0](x, y) - 0.34414f * cb(x, y) - 0.71414f * cr(x, y),
 		outGPyramid[0](x, y) + 1.772f * cb(x, y)), 0.0f, 1.0f);
 
-	//output(x, y, c) = clamp(outGPyramid[5](x / 32, y / 32), 0.0f, 1.0f);
+	//output(x, y, c) = clamp(outGPyramid[0](x, y), 0.0f, 1.0f);
 
 	// Schedule
 	Var xi, yi;
@@ -228,19 +235,23 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 
 	if (TILE)
 	{
-		output.tile(x, y, xi, yi, 40, 30);
+		output.tile(x, y, xi, yi, 80, 20);
 	}
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		if (TILE && j <= 0)
+		if (TILE && j <= 1)
 		{
 			outGPyramid[j].compute_at(output, x);
-			outLPyramid[j].compute_at(output, x);
+			outGPyramidUpX[j].compute_at(output, x);
 
+			ampReg[j].compute_at(output, x);
 			ampRegX[j].compute_at(output, x);
+			changeCReg[j].compute_at(output, x);
 			changeCRegX[j].compute_at(output, x);
+			changeSReg[j].compute_at(output, x);
 			changeSRegX[j].compute_at(output, x);
+			amp[j].compute_at(output, x);
 
 			changeCTuple[j].compute_at(output, x);
 			changeSTuple[j].compute_at(output, x);
@@ -260,21 +271,26 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 			phaseS[j].compute_at(output, x);
 			phi[j].compute_at(output, x);
 
-			r1Prev[j].compute_at(output, x);
-			r2Prev[j].compute_at(output, x);
 			r1Pyramid[j].compute_at(output, x);
 			r2Pyramid[j].compute_at(output, x);
+
 			lPyramidCopy[j].compute_at(output, x);
 			lPyramid[j].compute_at(output, x);
+			lPyramidUpX[j].compute_at(output, x);
 		}
 		else
 		{
 			outGPyramid[j].compute_root();
+			outGPyramidUpX[j].compute_root();
 			outLPyramid[j].compute_root();
 
-			ampRegX[j].compute_root();// store_at(outLPyramid[j], y).compute_at(outLPyramid[j], yi);
-			changeCRegX[j].compute_root();//store_at(outLPyramid[j], y).compute_at(outLPyramid[j], yi);
-			changeSRegX[j].compute_root();//store_at(outLPyramid[j], y).compute_at(outLPyramid[j], yi);
+			ampReg[j].compute_root().split(y, y, yi, 16).parallel(y, 4);
+			ampRegX[j].compute_at(ampReg[j], y);
+			changeCReg[j].compute_root().split(y, y, yi, 16).parallel(y, 4);
+			changeCRegX[j].compute_at(changeCReg[j], y);
+			changeSReg[j].compute_root().split(y, y, yi, 16).parallel(y, 4);
+			changeSRegX[j].compute_at(changeSReg[j], y);
+			amp[j].compute_root();
 
 			changeCTuple[j].compute_root();
 			changeSTuple[j].compute_root();
@@ -296,19 +312,30 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 
 			r1Pyramid[j].compute_root();
 			r2Pyramid[j].compute_root();
+
 			lPyramidCopy[j].compute_root();
-			lPyramid[j].compute_root();
+			lPyramid[j].compute_root().split(y, y, yi, 8).parallel(y, 4);
+			lPyramidUpX[j].compute_at(lPyramid[j], y);
 		}
-		gPyramid[j].compute_root();
+
+		if (j > 0)
+		{
+			gPyramid[j].compute_root().split(y, y, yi, 8).parallel(y, 4);
+			gPyramidDownX[j].compute_at(gPyramid[j], y);
+		}
 
 		if (j <= 4)
 		{
 			outGPyramid[j].parallel(y, 4).vectorize(x, 4);
-			outLPyramid[j].parallel(y, 4).vectorize(x, 4);
+			outGPyramidUpX[j].parallel(y, 4).vectorize(x, 4);
 
+			ampReg[j].parallel(y, 4).vectorize(x, 4);
 			ampRegX[j].parallel(y, 4).vectorize(x, 4);
+			changeCReg[j].parallel(y, 4).vectorize(x, 4);
 			changeCRegX[j].parallel(y, 4).vectorize(x, 4);
+			changeSReg[j].parallel(y, 4).vectorize(x, 4);
 			changeSRegX[j].parallel(y, 4).vectorize(x, 4);
+			amp[j].parallel(y, 4).vectorize(x, 4);
 
 			changeCTuple[j].parallel(y, 4).vectorize(x, 4);
 			changeSTuple[j].parallel(y, 4).vectorize(x, 4);
@@ -325,22 +352,24 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 			r1Pyramid[j].parallel(y, 4).vectorize(x, 4);
 			r2Pyramid[j].parallel(y, 4).vectorize(x, 4);
 
-			lPyramid[j].parallel(y, 4).vectorize(x, 4);
-			gPyramid[j].parallel(y, 4).vectorize(x, 4);
-		}
-		else
-		{
+			lPyramid[j].vectorize(x, 4);
+			lPyramidUpX[j].parallel(y, 4).vectorize(x, 4);
+			if (j > 0)
+			{
+				gPyramid[j].vectorize(x, 4);
+				gPyramidDownX[j].parallel(y, 4).vectorize(x, 4);
+			}
 		}
 	}
 
 	// The final level
-	gPyramid[pyramidLevels].compute_root().parallel(y);
+	gPyramid[pyramidLevels].compute_root().parallel(y, 4).vectorize(x, 4);
 
 	// Compile JIT
 	std::cout << "Compiling... ";
 	double t = currentTime();
 	output.compile_jit();
-	std::cout << "done! Elapsed: " << (currentTime() - t) / 1000 << " ms" << std::endl;
+	std::cout << "done! Elapsed: " << (currentTime() - t) / 1000 << " s" << std::endl;
 }
 
 void RieszMagnifier::process(const Halide::Image<float>& frame, const Image<float>& out)
@@ -356,7 +385,7 @@ void RieszMagnifier::computeFilter()
 {
 	double fps = app.fps();
 	if (fps == 0.0)
-		fps = 20.0;
+		fps = 15.0;
 	double lowCutoff = freqCenter - freqWidth / 2;
 	double highCutoff = freqCenter + freqWidth / 2;
 
