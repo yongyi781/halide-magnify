@@ -226,7 +226,7 @@ RieszMagnifier::RieszMagnifier(VideoApp app, int pyramidLevels, double freqCente
 		c == 1, outGPyramid[0](x, y) - 0.34414f * cb(x, y) - 0.71414f * cr(x, y),
 		outGPyramid[0](x, y) + 1.772f * cb(x, y)), 0.0f, 1.0f);
 
-	//output(x, y, c) = clamp(outGPyramid[0](x, y), 0.0f, 1.0f);
+	//output(x, y, c) = clamp(0.5f + lPyramid[0](x, y), 0.0f, 1.0f);
 
 	// Schedule
 	Var xi, yi;
@@ -388,6 +388,9 @@ void RieszMagnifier::computeFilter()
 		fps = 15.0;
 	double lowCutoff = freqCenter - freqWidth / 2;
 	double highCutoff = freqCenter + freqWidth / 2;
+
+	if (lowCutoff < 0 || highCutoff < 0)
+		throw std::invalid_argument("freqCenter - freqWidth / 2 and freqCenter + freqWidth / 2 should be positive.");
 
 	// TODO: Should recompute the fps periodically, not assume fixed value
 	filter_util::butterBP(1, { lowCutoff / (fps / 2.0), highCutoff / (fps / 2.0) }, filterA, filterB);
