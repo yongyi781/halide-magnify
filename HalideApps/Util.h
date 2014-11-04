@@ -1,6 +1,7 @@
 #pragma once
 
 const float gaussian5Coeffs[] = { 0.40261994689424435f, 0.24420134200323348f, 0.054488684549644346f };
+//const float gaussian5Coeffs[] = { 0.375f, 0.25f, 0.0625f };
 
 // Returns initialSize / 2^level. Used for pyramids.
 inline int scaleSize(int initialSize, int level)
@@ -66,6 +67,28 @@ inline Halide::Func downsampleG5Y(Halide::Func f)
 	return downy;
 }
 
+// Upsample using bilinear interpolation in x direction
+inline Halide::Func upsampleX(Halide::Func f)
+{
+	Halide::Func upx("upx");
+	Halide::Var x, y;
+
+	upx(x, y, Halide::_) = 0.25f * f((x / 2) - 1 + 2 * (x % 2), y, Halide::_) + 0.75f * f(x / 2, y, Halide::_);
+
+	return upx;
+}
+
+// Upsample using bilinear interpolation in y direction
+inline Halide::Func upsampleY(Halide::Func f)
+{
+	Halide::Func upy("upy");
+	Halide::Var x, y;
+
+	upy(x, y, Halide::_) = 0.25f * f(x, (y / 2) - 1 + 2 * (y % 2), Halide::_) + 0.75f * f(x, y / 2, Halide::_);
+
+	return upy;
+}
+
 // Upsample using bilinear interpolation
 inline Halide::Func upsample(Halide::Func f)
 {
@@ -84,9 +107,13 @@ inline Halide::Func upsampleG5X(Halide::Func f)
 	Halide::Func upx("upx");
 	Halide::Var x, y;
 
-	upx(x, y, Halide::_) = gaussian5Coeffs[0] * f(x / 2, y, Halide::_)
-		+ gaussian5Coeffs[1] * (f(x / 2 - 1, y, Halide::_) + f(x / 2 + 1, y, Halide::_))
-		+ gaussian5Coeffs[2] * (f(x / 2 - 2, y, Halide::_) + f(x / 2 + 2, y, Halide::_));
+	Halide::Expr c0 = ((x + 1) % 2) * gaussian5Coeffs[0];
+	Halide::Expr c1 = (x % 2) * gaussian5Coeffs[1];
+	Halide::Expr c2 = ((x + 1) % 2) * gaussian5Coeffs[2];
+
+	upx(x, y, Halide::_) = (c0 * f(x / 2, y, Halide::_)
+		+ c1 * (f(x / 2, y, Halide::_) + f(x / 2 + 1, y, Halide::_))
+		+ c2 * (f(x / 2 - 1, y, Halide::_) + f(x / 2 + 1, y, Halide::_))) / (c0 + 2 * c1 + 2 * c2);
 
 	return upx;
 }
@@ -97,9 +124,12 @@ inline Halide::Func upsampleG5Y(Halide::Func f)
 	Halide::Func upy("upy");
 	Halide::Var x, y;
 
-	upy(x, y, Halide::_) = gaussian5Coeffs[0] * f(x, y / 2, Halide::_)
-		+ gaussian5Coeffs[1] * (f(x, y / 2 - 1, Halide::_) + f(x, y / 2 + 1, Halide::_))
-		+ gaussian5Coeffs[2] * (f(x, y / 2 - 2, Halide::_) + f(x, y / 2 + 2, Halide::_));
+	Halide::Expr c0 = ((y + 1) % 2) * gaussian5Coeffs[0];
+	Halide::Expr c1 = (y % 2) * gaussian5Coeffs[1];
+	Halide::Expr c2 = ((y + 1) % 2) * gaussian5Coeffs[2];
+	upy(x, y, Halide::_) = (c0 * f(x, y / 2, Halide::_)
+		+ c1 * (f(x, y / 2, Halide::_) + f(x, y / 2 + 1, Halide::_))
+		+ c2 * (f(x, y / 2 - 1, Halide::_) + f(x, y / 2 + 1, Halide::_))) / (c0 + 2 * c1 + 2 * c2);
 
 	return upy;
 }
