@@ -5,7 +5,7 @@ using namespace Halide;
 
 #define TRACE 0
 
-int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
+int copyFloat32(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 {
 	if (in->host == nullptr || out->host == nullptr)
 	{
@@ -27,7 +27,7 @@ int copyFloat32(int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
 #endif
 		float* src = (float*)in->host;
 		float* dst = (float*)out->host;
-		float* dstCopy = (float*)copyTo->host + p * copyTo->stride[2];
+		float* dstCopy = (float*)copyTo->host + p * copyTo->stride[2] + bufferType * copyTo->stride[3];
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
 		{
 			float* srcLine = src + (y - in->min[1]) * in->stride[1];
@@ -50,20 +50,18 @@ std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name)
 	return f;
 }
 
-Func copyToCircularBuffer(Func input, const Image<float>& buffer, Param<int> pParam, std::string name)
+Func copyToCircularBuffer(Func input, ImageParam buffer, Expr bufferType, Param<int> pParam, std::string name)
 {
 	Func f(name);
-	Param<buffer_t*> copyToParam;
-	copyToParam.set(buffer.raw_buffer());
-	f.define_extern("copyFloat32", { pParam, copyToParam, input }, Float(32), 2);
+	f.define_extern("copyFloat32", { bufferType, pParam, buffer, input }, Float(32), 2);
 	return f;
 }
 
-std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Func>& input, const std::vector<Image<float>>& buffer, Param<int> pParam, std::string name)
+std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Func>& input, const std::vector<ImageParam>& buffer, Expr bufferType, Param<int> pParam, std::string name)
 {
 	std::vector<Func> fPyr(pyramidLevels);
 	for (int j = 0; j < pyramidLevels; j++)
-		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], pParam, name + "_" + std::to_string(j));
+		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], bufferType, pParam, name + "_" + std::to_string(j));
 	return fPyr;
 }
 

@@ -130,19 +130,28 @@ int main_magnify()
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
 	VideoApp app;
-	RieszMagnifier magnifier(app, 7, 2, 1);
+	RieszMagnifier magnifier(1, UInt(8), 2);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
+	std::vector<double> filterA;
+	std::vector<double> filterB;
+	RieszMagnifier::computeFilter(15, 2, 1, filterA, filterB);
+
+	std::vector<Image<float>> historyBuffer;
+	for (int i = 0; i < magnifier.getPyramidLevels(); i++)
+		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 2, 7));
+	magnifier.compileJIT();
+	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], 30.0f, historyBuffer);
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);
 	resultWindow.move(app.width() + 10, 0);
-	Image<float> frame;
-	Image<float> out(app.width(), app.height(), app.channels());
+	Image<uint8_t> frame;
+	Image<uint8_t> out(app.width(), app.height());
 	double timeSum = 0;
 	int frameCounter = -10;
 	for (int i = 0;; i++, frameCounter++)
 	{
-		frame = app.readFrame();
+		frame = app.readFrame_uint8();
 		if (frame.dimensions() == 0)
 		{
 			cv::waitKey();
@@ -155,8 +164,8 @@ int main_magnify()
 		//std::cout << out(175, 226) << std::endl;
 		// --- end timing ---
 		double diff = currentTime() - t;
-		inputWindow.showImage(frame);
-		resultWindow.showImage(out);
+		inputWindow.showImage2D(frame);
+		resultWindow.showImage2D(out);
 		std::cout << diff << " ms";
 
 		if (frameCounter >= 0)
@@ -224,25 +233,14 @@ int webcam_control()
 	return 0;
 }
 
+void something(buffer_t* input)
+{
+
+}
+
 int main(int argc, TCHAR* argv[])
 {
-	return main_magnify();
-
-	// TODO: Should recompute the fps periodically, not assume fixed value
-	const double fps = 30.0;
-	double lowCutoff = 1.5;
-	double highCutoff = 2.5;
-
-	// TODO: Should recompute the fps periodically, not assume fixed value
-	std::vector<double> a, b;
-	filter_util::butterBP(1, { lowCutoff / (fps / 2.0), highCutoff / (fps / 2.0) }, a, b);
-	a[1] = a[1] / a[0];
-	a[2] = a[2] / a[0];
-
-	std::cout << "a: ";
-	std::copy(std::begin(a), std::end(a), std::ostream_iterator<double>(std::cout, ", "));
-	std::cout << std::endl;
-	std::cout << "b: ";
-	std::copy(std::begin(b), std::end(b), std::ostream_iterator<double>(std::cout, ", "));
-	std::cout << std::endl;
+	RieszMagnifier magnifier(1, UInt(8), 2);
+	Target target = parse_target_string("arm-64-android");
+	magnifier.compileToFile("magnify", target);
 }

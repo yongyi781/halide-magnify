@@ -5,41 +5,49 @@
 class RieszMagnifier
 {
 public:
-	RieszMagnifier(VideoApp app, int pyramidLevels = 5, double freqCenter = 2.0, double freqWidth = 0.5, float alpha = 30.0f);
-	void process(const Halide::Image<float>& frame, const Halide::Image<float>& out);
-	void computeFilter();
-	void computeBandAlphas();
+	RieszMagnifier(int channels, Halide::Type type, int pyramidLevels = 5);
+	void compileJIT(Halide::Target target = Halide::get_target_from_environment());
+	void compileToFile(std::string filenamePrefix, Halide::Target target = Halide::get_target_from_environment());
+	void bindJIT(float a1, float a2, float b0, float b1, float b2, float alpha, std::vector<Halide::Image<float>> historyBuffer);
+	void process(Halide::Buffer frame, Halide::Buffer out);
 	void computeBandSigmas();
 
-private:
-	static const int CIRCBUFFER_SIZE = 2;
+	int getPyramidLevels() { return pyramidLevels; }
 
-	// Temporal filtering
-	double freqCenter;
-	double freqWidth;
-	std::vector<double> filterA;
-	std::vector<double> filterB;
-	float alpha;
-	std::vector<float> bandAlpha;
+	static void computeFilter(double fps, double freqCenter, double freqWidth, std::vector<double>& filterA, std::vector<double>& filterB);
+
+private:
+
+	static const int CIRCBUFFER_SIZE = 2;
+	static const int NUM_BUFFER_TYPES = 7;
 
 	// Spatial regularization
 	std::vector<float> bandSigma;
 
-	VideoApp app;
+	int channels;
 	int pyramidLevels;
 
+	// Input params
 	Halide::ImageParam input;
+	// Filter coefficients
+	Halide::Param<float> a1, a2, b0, b1, b2;
+	// Amplification coefficients
+	Halide::Param<float> alpha;
+	// 4-dimensional buffer: For each pyramid level, an image of size width x height x circular buffer index x type.
+	// Types:
+	// ------
+	// 0: pyramidBuffer
+	// 1: phaseCBuffer
+	// 2: phaseSBuffer
+	// 3: lowpass1CBuffer
+	// 4: lowpass2CBuffer
+	// 5: lowpass1SBuffer
+	// 6: lowpass2SBuffer
+	std::vector<Halide::ImageParam> historyBuffer;
+	// Current frame modulo 2. (For circular buffer).
 	Halide::Param<int> pParam;
-	Halide::Param<bool> isInit;
-	Halide::Func output;
 
-	std::vector<Halide::Image<float>> pyramidBuffer;
-	std::vector<Halide::Image<float>> phaseCBuffer;
-	std::vector<Halide::Image<float>> phaseSBuffer;
-	std::vector<Halide::Image<float>> lowpass1CBuffer;
-	std::vector<Halide::Image<float>> lowpass2CBuffer;
-	std::vector<Halide::Image<float>> lowpass1SBuffer;
-	std::vector<Halide::Image<float>> lowpass2SBuffer;
+	Halide::Func output;
 
 	int frameCounter;
 };

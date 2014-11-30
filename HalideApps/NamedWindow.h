@@ -7,6 +7,8 @@ public:
 	void move(int x, int y);
 	void showImage(Halide::Image<float> im);
 	void showImage(cv::Mat mat);
+	void showImage2D(Halide::Image<uint8_t> im);
+	void showImage3D(Halide::Image<uint8_t> im);
 	void close();
 
 private:

@@ -12,6 +12,7 @@ public:
 	double fps() { return cap.get(cv::CAP_PROP_FPS); }
 
 	Halide::Image<float> readFrame();
+	Halide::Image<uint8_t> readFrame_uint8();
 
 private:
 	int scaleFactor;
