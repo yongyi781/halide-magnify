@@ -163,3 +163,5 @@ HalideApps/output.c
 *.png
 HalideApps/profile.txt
 *.avi
+HalideApps/magnify.h
+HalideApps/magnify.o
