@@ -130,7 +130,7 @@ int main_magnify()
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
 	VideoApp app;
-	RieszMagnifier magnifier(1, UInt(8), 2);
+	RieszMagnifier magnifier(1, UInt(8), 0);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
 	std::vector<double> filterA;
 	std::vector<double> filterB;
@@ -138,8 +138,8 @@ int main_magnify()
 
 	std::vector<Image<float>> historyBuffer;
 	for (int i = 0; i < magnifier.getPyramidLevels(); i++)
-		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 2, 7));
-	magnifier.compileJIT();
+		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 7, 2));
+	magnifier.compileJIT(true);
 	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], 30.0f, historyBuffer);
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
@@ -238,9 +238,14 @@ void something(buffer_t* input)
 
 }
 
-int main(int argc, TCHAR* argv[])
+int _tmain(int argc, TCHAR* argv[])
 {
-	RieszMagnifier magnifier(1, UInt(8), 2);
-	Target target = parse_target_string("arm-64-android");
-	magnifier.compileToFile("magnify", target);
+	if (argc >= 2 && argv[1] == std::wstring(L"-c"))
+	{
+		RieszMagnifier(1, UInt(8), 7).compileToFile("magnify", true, parse_target_string("arm-64-android"));
+	}
+	else
+	{
+		return main_magnify();
+	}
 }

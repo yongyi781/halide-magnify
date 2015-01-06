@@ -27,7 +27,7 @@ int copyFloat32(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t*
 #endif
 		float* src = (float*)in->host;
 		float* dst = (float*)out->host;
-		float* dstCopy = (float*)copyTo->host + p * copyTo->stride[2] + bufferType * copyTo->stride[3];
+		float* dstCopy = (float*)copyTo->host + bufferType * copyTo->stride[2] + p * copyTo->stride[3];
 		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
 		{
 			float* srcLine = src + (y - in->min[1]) * in->stride[1];
