@@ -1,7 +1,5 @@
 #pragma once
 
-#include "VideoApp.h"
-
 class RieszMagnifier
 {
 public:
