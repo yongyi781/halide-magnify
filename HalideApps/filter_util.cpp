@@ -413,3 +413,17 @@ void filter_util::butterBP(unsigned int N,
 	out_b.push_back(0);
 	out_b.push_back(-Mai);
 }
+
+void filter_util::computeFilter(double fps, double freqCenter, double freqWidth, std::vector<double>& filterA, std::vector<double>& filterB)
+{
+	double lowCutoff = freqCenter - freqWidth / 2;
+	double highCutoff = freqCenter + freqWidth / 2;
+
+	if (lowCutoff < 0 || highCutoff < 0)
+		throw std::invalid_argument("freqCenter - freqWidth / 2 and freqCenter + freqWidth / 2 should be positive.");
+
+	// TODO: Should recompute the fps periodically, not assume fixed value
+	filter_util::butterBP(1, { lowCutoff / (fps / 2.0), highCutoff / (fps / 2.0) }, filterA, filterB);
+	filterA[1] /= filterA[0];
+	filterA[2] /= filterA[0];
+}

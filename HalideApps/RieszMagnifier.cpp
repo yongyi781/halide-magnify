@@ -1,6 +1,5 @@
 #include "stdafx.h"
 #include "RieszMagnifier.h"
-#include "filter_util.h"
 #include "Util.h"
 
 using namespace Halide;
@@ -219,6 +218,7 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	if (channels == 1)
 	{
 		floatOutput(x, y) = clamp(outGPyramid[0](x, y), 0.0f, 1.0f);
+		output(x, y) = type == UInt(8) ? cast<uint8_t>(floatOutput(x, y) * 255.0f) : floatOutput(x, y);
 	}
 	else
 	{
@@ -227,8 +227,8 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 			c == 0, outGPyramid[0](x, y) + 1.402f * cr(x, y),
 			c == 1, outGPyramid[0](x, y) - 0.34414f * cb(x, y) - 0.71414f * cr(x, y),
 			outGPyramid[0](x, y) + 1.772f * cb(x, y)), 0.0f, 1.0f);
+		output(x, y, c) = type == UInt(8) ? cast<uint8_t>(floatOutput(x, y, c) * 255.0f) : floatOutput(x, y, c);
 	}
-	output(x, y, _) = type == UInt(8) ? cast<uint8_t>(floatOutput(x, y, _) * 255.0f) : floatOutput(x, y, _);
 }
 
 void RieszMagnifier::schedule(bool tile, Halide::Target target)
@@ -254,12 +254,12 @@ void RieszMagnifier::scheduleX86(bool tile)
 
 	if (tile)
 	{
-		output.tile(x, y, xi, yi, 40, 20);
+		output.tile(x, y, xi, yi, 80, 20);
 	}
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		if (tile && j <= 1)
+		if (tile && j <= 0)
 		{
 			outGPyramid[j].compute_at(output, x);
 			outGPyramidUpX[j].compute_at(output, x);
@@ -571,20 +571,6 @@ void RieszMagnifier::process(Buffer frame, Buffer out)
 	output.realize(out);
 
 	frameCounter++;
-}
-
-void RieszMagnifier::computeFilter(double fps, double freqCenter, double freqWidth, std::vector<double>& filterA, std::vector<double>& filterB)
-{
-	double lowCutoff = freqCenter - freqWidth / 2;
-	double highCutoff = freqCenter + freqWidth / 2;
-
-	if (lowCutoff < 0 || highCutoff < 0)
-		throw std::invalid_argument("freqCenter - freqWidth / 2 and freqCenter + freqWidth / 2 should be positive.");
-
-	// TODO: Should recompute the fps periodically, not assume fixed value
-	filter_util::butterBP(1, { lowCutoff / (fps / 2.0), highCutoff / (fps / 2.0) }, filterA, filterB);
-	filterA[1] /= filterA[0];
-	filterA[2] /= filterA[0];
 }
 
 void RieszMagnifier::computeBandSigmas()

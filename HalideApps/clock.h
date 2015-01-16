@@ -2,8 +2,8 @@
 
 #include <stdint.h>
 
-extern "C" bool QueryPerformanceCounter(uint64_t *);
-extern "C" bool QueryPerformanceFrequency(uint64_t *);
+extern "C" bool __stdcall QueryPerformanceCounter(uint64_t *);
+extern "C" bool __stdcall QueryPerformanceFrequency(uint64_t *);
 
 // Get current time (measured in milliseconds).
 inline double currentTime()

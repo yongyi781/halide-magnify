@@ -37,4 +37,9 @@ namespace filter_util
 		std::vector<double> Wn,
 		std::vector<double>& out_a,
 		std::vector<double>& out_b);
+	void computeFilter(double fps,
+		double freqCenter,
+		double freqWidth,
+		std::vector<double>& filterA,
+		std::vector<double>& filterB);
 }

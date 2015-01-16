@@ -129,29 +129,36 @@ int main_magnify()
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
-	VideoApp app;
-	RieszMagnifier magnifier(1, UInt(8), 0);
+	RieszMagnifier magnifier(3, Float(32), 5);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
+	magnifier.compileJIT(true);
+
 	std::vector<double> filterA;
 	std::vector<double> filterB;
-	RieszMagnifier::computeFilter(15, 2, 1, filterA, filterB);
+	float alpha = 30.0f;
+	double fps = 30.0;
+	double freqCenter = 2;
+	double freqWidth = .5;
+	filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+
+	VideoApp app;
 
 	std::vector<Image<float>> historyBuffer;
 	for (int i = 0; i < magnifier.getPyramidLevels(); i++)
 		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 7, 2));
-	magnifier.compileJIT(true);
-	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], 30.0f, historyBuffer);
+	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);
 	resultWindow.move(app.width() + 10, 0);
-	Image<uint8_t> frame;
-	Image<uint8_t> out(app.width(), app.height());
+	Image<float> frame;
+	Image<float> out(app.width(), app.height(), app.channels());
 	double timeSum = 0;
 	int frameCounter = -10;
+	int pressedKey;
 	for (int i = 0;; i++, frameCounter++)
 	{
-		frame = app.readFrame_uint8();
+		frame = app.readFrame();
 		if (frame.dimensions() == 0)
 		{
 			cv::waitKey();
@@ -164,22 +171,53 @@ int main_magnify()
 		//std::cout << out(175, 226) << std::endl;
 		// --- end timing ---
 		double diff = currentTime() - t;
-		inputWindow.showImage2D(frame);
-		resultWindow.showImage2D(out);
+		inputWindow.showImage(frame);
+		resultWindow.showImage(out);
 		std::cout << diff << " ms";
 
 		if (frameCounter >= 0)
 		{
 			timeSum += diff / 1000.0;
-			std::cout << "\t(" << (frameCounter + 1) / timeSum << " FPS)"
-				<< "\t(" << 1000 * timeSum / (frameCounter + 1) << " ms)" << std::endl;
+			fps = (frameCounter + 1) / timeSum;
+			std::cout << "\t(" << fps << " FPS)"
+				<< "\t(" << 1000 / fps << " ms)" << std::endl;
+
+			if (frameCounter % 10 == 0)
+			{
+				// Update fps
+				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+			}
 		}
 		else
 		{
 			std::cout << std::endl;
 		}
-		if (cv::waitKey(30) >= 0)
-			break;
+		if ((pressedKey = cv::waitKey(30)) >= 0) {
+			std::cout << pressedKey << std::endl;
+			if (pressedKey == 45)	// minus
+			{
+				freqCenter = std::max(freqWidth, freqCenter - 0.5);
+				std::cout << "Freq center is now " << freqCenter << std::endl;
+				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+			}
+			else if (pressedKey == 43)	// plus
+			{
+				freqCenter += 0.5;
+				std::cout << "Freq center is now " << freqCenter << std::endl;
+				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+			}
+			else if (pressedKey == 97)	// a
+			{
+				// Increase alpha
+				alpha += 10;
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+			}
+			else if (pressedKey == 27)
+				break;
+		}
 	}
 
 	return 0;
@@ -233,9 +271,18 @@ int webcam_control()
 	return 0;
 }
 
-void something(buffer_t* input)
-{
+cv::Mat correctGamma(cv::Mat& img, double gamma) {
+	double inverse_gamma = 1.0 / gamma;
 
+	cv::Mat lut_matrix(1, 256, CV_8UC1);
+	uchar * ptr = lut_matrix.ptr();
+	for (int i = 0; i < 256; i++)
+		ptr[i] = (int)(pow((double)i / 255.0, inverse_gamma) * 255.0);
+
+	cv::Mat result;
+	LUT(img, lut_matrix, result);
+
+	return result;
 }
 
 int _tmain(int argc, TCHAR* argv[])

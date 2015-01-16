@@ -12,8 +12,6 @@ public:
 
 	int getPyramidLevels() { return pyramidLevels; }
 
-	static void computeFilter(double fps, double freqCenter, double freqWidth, std::vector<double>& filterA, std::vector<double>& filterB);
-
 private:
 	void schedule(bool tile, Halide::Target target = Halide::get_target_from_environment());
 	void scheduleX86(bool tile);
