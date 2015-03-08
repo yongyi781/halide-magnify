@@ -4,7 +4,7 @@
 
 using namespace Halide;
 
-const float TINY = 1e-14f;
+const float TINY = 1e-24f;
 
 RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevels)
 	: channels(channels), pyramidLevels(pyramidLevels), bandSigma(std::vector<float>(pyramidLevels))
@@ -161,10 +161,12 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	changeS2 = makeFuncArray(pyramidLevels, "changeS2");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		changeCTuple[j](x, y) = { changeC[j](x, y), lowpass1CCopy[j](x, y), lowpass2CCopy[j](x, y) };
-		changeSTuple[j](x, y) = { changeS[j](x, y), lowpass1SCopy[j](x, y), lowpass2SCopy[j](x, y) };
-		changeC2[j](x, y) = changeCTuple[j](x, y)[0];
-		changeS2[j](x, y) = changeSTuple[j](x, y)[0];
+		//changeCTuple[j](x, y) = { changeC[j](x, y), lowpass1CCopy[j](x, y), lowpass2CCopy[j](x, y) };
+		//changeSTuple[j](x, y) = { changeS[j](x, y), lowpass1SCopy[j](x, y), lowpass2SCopy[j](x, y) };
+		changeC2[j](x, y) = changeC[j](x, y) + TINY * lowpass1CCopy[j](x, y) + TINY * lowpass2CCopy[j](x, y);
+		changeS2[j](x, y) = changeS[j](x, y) + TINY * lowpass1SCopy[j](x, y) + TINY * lowpass2SCopy[j](x, y);
+		//changeC2[j](x, y) = changeCTuple[j](x, y)[0];
+		//changeS2[j](x, y) = changeSTuple[j](x, y)[0];
 	}
 
 	amp = makeFuncArray(pyramidLevels, "amp");
@@ -272,10 +274,10 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeSRegX[j].compute_at(output, x);
 			amp[j].compute_at(output, x);
 
-			changeCTuple[j].compute_at(output, x);
-			changeSTuple[j].compute_at(output, x);
+			changeC2[j].compute_at(output, x);
+			changeS2[j].compute_at(output, x);
 
-			lowpass1CCopy[j].compute_at(output, x);
+			lowpass1CCopy[j].compute_at(output, xi);
 			lowpass2CCopy[j].compute_at(output, x);
 			lowpass1SCopy[j].compute_at(output, x);
 			lowpass2SCopy[j].compute_at(output, x);
@@ -289,9 +291,6 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseC[j].compute_at(output, x);
 			phaseS[j].compute_at(output, x);
 			phi[j].compute_at(output, x);
-
-			r1Pyramid[j].compute_at(output, x);
-			r2Pyramid[j].compute_at(output, x);
 
 			lPyramidCopy[j].compute_at(output, x);
 			lPyramid[j].compute_at(output, x);
@@ -310,8 +309,8 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeSRegX[j].compute_at(changeSReg[j], y);
 			amp[j].compute_root();
 
-			changeCTuple[j].compute_root();
-			changeSTuple[j].compute_root();
+			changeC2[j].compute_root();
+			changeS2[j].compute_root();
 
 			lowpass1CCopy[j].compute_root();
 			lowpass2CCopy[j].compute_root();
@@ -327,9 +326,6 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseC[j].compute_root();
 			phaseS[j].compute_root();
 			phi[j].compute_root();
-
-			r1Pyramid[j].compute_root();
-			r2Pyramid[j].compute_root();
 
 			lPyramidCopy[j].compute_root();
 			lPyramid[j].compute_root().split(y, y, yi, 8);
@@ -355,8 +351,8 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeSRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			amp[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
-			changeCTuple[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSTuple[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			changeC2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			changeS2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			lowpass1C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			lowpass2C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
@@ -366,9 +362,6 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseC[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			phaseS[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			phi[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-
-			r1Pyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			r2Pyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			lPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			lPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
@@ -414,7 +407,7 @@ void RieszMagnifier::scheduleARM(bool tile)
 			amp[j].compute_at(output, x);
 
 			changeCTuple[j].compute_at(output, x);
-			changeSTuple[j].compute_at(output, x);
+			changeSTuple[j].compute_at(output, xi);
 
 			lowpass1CCopy[j].compute_at(output, x);
 			lowpass2CCopy[j].compute_at(output, x);

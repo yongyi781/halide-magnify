@@ -47,7 +47,7 @@ private:
 	Halide::Param<int> pParam;
 
 	// Funcs
-	Halide::Var x, y, c, p, xi, yi;
+	Halide::Var x{ "x" }, y{ "y" }, c{ "c" }, p{ "p" }, xi{ "xi" }, yi{ "yi" };
 	std::vector<Halide::Func>
 		gPyramidDownX,
 		gPyramid,

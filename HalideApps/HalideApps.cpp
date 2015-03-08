@@ -127,27 +127,30 @@ cv::Mat toMat_reordered(Image<float> im)
 int main_magnify()
 {
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
-	std::string filename2 = R"(C:\Users\Yongyi\Downloads\RieszPyramidICCP2014pres\inputC.wmv)";
+	std::string filename2 = R"(C:\Users\Yongyi\Downloads\Saved\Video Magnification\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
-	RieszMagnifier magnifier(3, Float(32), 5);
+	RieszMagnifier magnifier(3, Float(32), 1);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
 	magnifier.compileJIT(true);
 
 	std::vector<double> filterA;
 	std::vector<double> filterB;
 	float alpha = 30.0f;
-	double fps = 30.0;
-	double freqCenter = 2;
+	double fps = 50.0;
+	double videoFps = 0;
+	double freqCenter = 1;
 	double freqWidth = .5;
-	filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
 
 	VideoApp app;
+	videoFps = app.fps();
+	filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
 
 	std::vector<Image<float>> historyBuffer;
 	for (int i = 0; i < magnifier.getPyramidLevels(); i++)
 		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 7, 2));
 	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 
+	//cv::VideoWriter writer("output.avi", -1, videoFps == 0 ? fps : videoFps, { app.width(), app.height() });
 	NamedWindow inputWindow("Input"), resultWindow("Result");
 	inputWindow.move(0, 0);
 	resultWindow.move(app.width() + 10, 0);
@@ -173,6 +176,7 @@ int main_magnify()
 		double diff = currentTime() - t;
 		inputWindow.showImage(frame);
 		resultWindow.showImage(out);
+		//writer.write(toMat_reordered(out));
 		std::cout << diff << " ms";
 
 		if (frameCounter >= 0)
@@ -180,33 +184,31 @@ int main_magnify()
 			timeSum += diff / 1000.0;
 			fps = (frameCounter + 1) / timeSum;
 			std::cout << "\t(" << fps << " FPS)"
-				<< "\t(" << 1000 / fps << " ms)" << std::endl;
+				<< "\t(" << 1000 / fps << " ms)";
 
 			if (frameCounter % 10 == 0)
 			{
 				// Update fps
-				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
 				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 		}
-		else
-		{
-			std::cout << std::endl;
-		}
+		std::cout << std::endl;
+
 		if ((pressedKey = cv::waitKey(30)) >= 0) {
 			std::cout << pressedKey << std::endl;
 			if (pressedKey == 45)	// minus
 			{
 				freqCenter = std::max(freqWidth, freqCenter - 0.5);
 				std::cout << "Freq center is now " << freqCenter << std::endl;
-				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
 				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 			else if (pressedKey == 43)	// plus
 			{
 				freqCenter += 0.5;
 				std::cout << "Freq center is now " << freqCenter << std::endl;
-				filter_util::computeFilter(fps, freqCenter, freqWidth, filterA, filterB);
+				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
 				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 			else if (pressedKey == 97)	// a
