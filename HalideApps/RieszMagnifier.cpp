@@ -272,12 +272,12 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeCRegX[j].compute_at(output, x);
 			changeSReg[j].compute_at(output, x);
 			changeSRegX[j].compute_at(output, x);
-			amp[j].compute_at(output, x);
+			amp[j].compute_at(output, x).parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			changeC2[j].compute_at(output, x);
 			changeS2[j].compute_at(output, x);
 
-			lowpass1CCopy[j].compute_at(output, xi);
+			lowpass1CCopy[j].compute_at(output, x);
 			lowpass2CCopy[j].compute_at(output, x);
 			lowpass1SCopy[j].compute_at(output, x);
 			lowpass2SCopy[j].compute_at(output, x);
@@ -290,7 +290,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseSCopy[j].compute_at(output, x);
 			phaseC[j].compute_at(output, x);
 			phaseS[j].compute_at(output, x);
-			phi[j].compute_at(output, x);
+			phi[j].compute_at(output, x).parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			lPyramidCopy[j].compute_at(output, x);
 			lPyramid[j].compute_at(output, x);
@@ -307,7 +307,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeCRegX[j].compute_at(changeCReg[j], y);
 			changeSReg[j].compute_root().split(y, y, yi, 16);
 			changeSRegX[j].compute_at(changeSReg[j], y);
-			amp[j].compute_root();
+			amp[j].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);;
 
 			changeC2[j].compute_root();
 			changeS2[j].compute_root();
@@ -325,7 +325,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseSCopy[j].compute_root();
 			phaseC[j].compute_root();
 			phaseS[j].compute_root();
-			phi[j].compute_root();
+			phi[j].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			lPyramidCopy[j].compute_root();
 			lPyramid[j].compute_root().split(y, y, yi, 8);
@@ -334,7 +334,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 
 		if (j > 0)
 		{
-			gPyramid[j].compute_root().split(y, y, yi, 8);
+			gPyramid[j].compute_root();
 			gPyramidDownX[j].compute_at(gPyramid[j], y);
 		}
 
@@ -349,7 +349,6 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeCRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			changeSReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			changeSRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			amp[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			changeC2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			changeS2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
@@ -361,7 +360,6 @@ void RieszMagnifier::scheduleX86(bool tile)
 
 			phaseC[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			phaseS[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			phi[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 
 			lPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
 			lPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
