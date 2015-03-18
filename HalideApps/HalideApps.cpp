@@ -129,7 +129,7 @@ int main_magnify()
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\Saved\Video Magnification\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
-	RieszMagnifier magnifier(3, Float(32), 7);
+	RieszMagnifier magnifier(3, Float(32), 2);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
 	magnifier.compileJIT(true);
 

@@ -233,6 +233,11 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	}
 }
 
+void parallelizeAndVectorize(Func f, Var x, Var y, int vectorSize)
+{
+	f.parallel(y, 4).vectorize(x, vectorSize);
+}
+
 void RieszMagnifier::schedule(bool tile, Halide::Target target)
 {
 	if (target.arch == Target::Arch::X86)
@@ -252,11 +257,20 @@ void RieszMagnifier::scheduleX86(bool tile)
 	// Schedule
 	if (channels == 3)
 		output.reorder(c, x, y).bound(c, 0, channels).unroll(c);
-	output.parallel(y, 4).vectorize(x, 4);
+	//parallelizeAndVectorize(output, x, y, VECTOR_SIZE);
+
+	Var xj, yj;
+	output.split(y, y, yi, 80);
+	output.split(x, x, xi, 320);
+	output.split(xi, xi, xj, 8);
+	output.split(yi, yi, yj, 4);
+	output.parallel(yi);
+	output.vectorize(xj);
+	output.reorder(xj, xi, yj, yi, x, y);
 
 	if (tile)
 	{
-		output.tile(x, y, xi, yi, 80, 20);
+		//output.tile(x, y, xi, yi, 40, 20);
 	}
 
 	for (int j = 0; j < pyramidLevels; j++)
@@ -340,33 +354,33 @@ void RieszMagnifier::scheduleX86(bool tile)
 
 		if (j <= 4)
 		{
-			outGPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			outGPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(outGPyramid[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(outGPyramidUpX[j], x, y, VECTOR_SIZE);
 
-			ampReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			ampRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeCReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeCRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(ampReg[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(ampRegX[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(changeCReg[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(changeCRegX[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(changeSReg[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(changeSRegX[j], x, y, VECTOR_SIZE);
 
-			changeC2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeS2[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(changeC2[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(changeS2[j], x, y, VECTOR_SIZE);
 
-			lowpass1C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass2C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass1S[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass2S[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(lowpass1C[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(lowpass2C[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(lowpass1S[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(lowpass2S[j], x, y, VECTOR_SIZE);
 
-			phaseC[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			phaseS[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(phaseC[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(phaseS[j], x, y, VECTOR_SIZE);
 
-			lPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			parallelizeAndVectorize(lPyramid[j], x, y, VECTOR_SIZE);
+			parallelizeAndVectorize(lPyramidUpX[j], x, y, VECTOR_SIZE);
 			if (j > 0)
 			{
-				gPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-				gPyramidDownX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+				parallelizeAndVectorize(gPyramid[j], x, y, VECTOR_SIZE);
+				parallelizeAndVectorize(gPyramidDownX[j], x, y, VECTOR_SIZE);
 			}
 		}
 	}
