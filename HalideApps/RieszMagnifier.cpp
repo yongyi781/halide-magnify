@@ -8,8 +8,6 @@ const float TINY = 1e-24f;
 
 RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevels)
 	: channels(channels), pyramidLevels(pyramidLevels), bandSigma(std::vector<float>(pyramidLevels))
-	, a1(Param<float>("a1")), a2(Param<float>("a2")), b0(Param<float>("b0")), b1(Param<float>("b1")), b2(Param<float>("b2"))
-	, alpha(Param<float>("alpha")), pParam(Param<int>("pParam")), output(Func("output"))
 {
 	if (channels != 1 && channels != 3)
 		throw std::invalid_argument("Channels must be either 1 or 3.");
@@ -155,18 +153,12 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	lowpass1SCopy = copyPyramidToCircularBuffer(pyramidLevels, lowpass1S, historyBuffer, 5, pParam, "lowpass1SCopy");
 	lowpass2SCopy = copyPyramidToCircularBuffer(pyramidLevels, lowpass2S, historyBuffer, 6, pParam, "lowpass2SCopy");
 
-	changeCTuple = makeFuncArray(pyramidLevels, "changeCTuple");
-	changeSTuple = makeFuncArray(pyramidLevels, "changeSTuple");
 	changeC2 = makeFuncArray(pyramidLevels, "changeC2");
 	changeS2 = makeFuncArray(pyramidLevels, "changeS2");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		//changeCTuple[j](x, y) = { changeC[j](x, y), lowpass1CCopy[j](x, y), lowpass2CCopy[j](x, y) };
-		//changeSTuple[j](x, y) = { changeS[j](x, y), lowpass1SCopy[j](x, y), lowpass2SCopy[j](x, y) };
 		changeC2[j](x, y) = changeC[j](x, y) + TINY * lowpass1CCopy[j](x, y) + TINY * lowpass2CCopy[j](x, y);
 		changeS2[j](x, y) = changeS[j](x, y) + TINY * lowpass1SCopy[j](x, y) + TINY * lowpass2SCopy[j](x, y);
-		//changeC2[j](x, y) = changeCTuple[j](x, y)[0];
-		//changeS2[j](x, y) = changeSTuple[j](x, y)[0];
 	}
 
 	amp = makeFuncArray(pyramidLevels, "amp");
@@ -233,11 +225,6 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	}
 }
 
-void parallelizeAndVectorize(Func f, Var x, Var y, int vectorSize)
-{
-	f.parallel(y, 4).vectorize(x, vectorSize);
-}
-
 void RieszMagnifier::schedule(bool tile, Halide::Target target)
 {
 	if (target.arch == Target::Arch::X86)
@@ -250,6 +237,13 @@ void RieszMagnifier::schedule(bool tile, Halide::Target target)
 	}
 }
 
+void innerScheduleX86(Func f, Var x, Var y, bool parallel = false)
+{
+	f.vectorize(x, 8);
+	if (parallel)
+		f.parallel(y, 4);
+}
+
 void RieszMagnifier::scheduleX86(bool tile)
 {
 	const int VECTOR_SIZE = 8;
@@ -257,25 +251,18 @@ void RieszMagnifier::scheduleX86(bool tile)
 	// Schedule
 	if (channels == 3)
 		output.reorder(c, x, y).bound(c, 0, channels).unroll(c);
-	//parallelizeAndVectorize(output, x, y, VECTOR_SIZE);
 
-	Var xj, yj;
-	output.split(y, y, yi, 80);
-	output.split(x, x, xi, 320);
-	output.split(xi, xi, xj, 8);
-	output.split(yi, yi, yj, 4);
-	output.parallel(yi);
-	output.vectorize(xj);
-	output.reorder(xj, xi, yj, yi, x, y);
-
+	output.vectorize(x, VECTOR_SIZE);
 	if (tile)
 	{
-		//output.tile(x, y, xi, yi, 40, 20);
+		output.tile(x, y, xi, yi, 40, 40);
 	}
+	output.parallel(y);
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		if (tile && j <= 0)
+		bool computeAt = tile && j <= 0;
+		if (computeAt)
 		{
 			outGPyramid[j].compute_at(output, x);
 			outGPyramidUpX[j].compute_at(output, x);
@@ -286,7 +273,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeCRegX[j].compute_at(output, x);
 			changeSReg[j].compute_at(output, x);
 			changeSRegX[j].compute_at(output, x);
-			amp[j].compute_at(output, x).parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			amp[j].compute_at(output, x);
 
 			changeC2[j].compute_at(output, x);
 			changeS2[j].compute_at(output, x);
@@ -304,7 +291,7 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseSCopy[j].compute_at(output, x);
 			phaseC[j].compute_at(output, x);
 			phaseS[j].compute_at(output, x);
-			phi[j].compute_at(output, x).parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			phi[j].compute_at(output, x);
 
 			lPyramidCopy[j].compute_at(output, x);
 			lPyramid[j].compute_at(output, x);
@@ -315,13 +302,13 @@ void RieszMagnifier::scheduleX86(bool tile)
 			outGPyramid[j].compute_root();
 			outGPyramidUpX[j].compute_root();
 
-			ampReg[j].compute_root().split(y, y, yi, 16);
-			ampRegX[j].compute_at(ampReg[j], y);
-			changeCReg[j].compute_root().split(y, y, yi, 16);
-			changeCRegX[j].compute_at(changeCReg[j], y);
-			changeSReg[j].compute_root().split(y, y, yi, 16);
-			changeSRegX[j].compute_at(changeSReg[j], y);
-			amp[j].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);;
+			ampReg[j].compute_root();
+			ampRegX[j].compute_root();
+			changeCReg[j].compute_root();
+			changeCRegX[j].compute_root();
+			changeSReg[j].compute_root();
+			changeSRegX[j].compute_root();
+			amp[j].compute_root();
 
 			changeC2[j].compute_root();
 			changeS2[j].compute_root();
@@ -339,54 +326,58 @@ void RieszMagnifier::scheduleX86(bool tile)
 			phaseSCopy[j].compute_root();
 			phaseC[j].compute_root();
 			phaseS[j].compute_root();
-			phi[j].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			phi[j].compute_root();
 
 			lPyramidCopy[j].compute_root();
-			lPyramid[j].compute_root().split(y, y, yi, 8);
-			lPyramidUpX[j].compute_at(lPyramid[j], y);
+			lPyramid[j].compute_root();
+			lPyramidUpX[j].compute_root();
 		}
 
 		if (j > 0)
 		{
 			gPyramid[j].compute_root();
-			gPyramidDownX[j].compute_at(gPyramid[j], y);
+			gPyramidDownX[j].compute_root();
 		}
 
 		if (j <= 4)
 		{
-			parallelizeAndVectorize(outGPyramid[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(outGPyramidUpX[j], x, y, VECTOR_SIZE);
+			// If computeAt, don't parallelize since it's not necessary.
+			innerScheduleX86(outGPyramid[j], x, y, !computeAt);
+			innerScheduleX86(outGPyramidUpX[j], x, y, !computeAt);
 
-			parallelizeAndVectorize(ampReg[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(ampRegX[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(changeCReg[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(changeCRegX[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(changeSReg[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(changeSRegX[j], x, y, VECTOR_SIZE);
+			innerScheduleX86(ampReg[j], x, y, !computeAt);
+			innerScheduleX86(ampRegX[j], x, y, !computeAt);
+			innerScheduleX86(changeCReg[j], x, y, !computeAt);
+			innerScheduleX86(changeCRegX[j], x, y, !computeAt);
+			innerScheduleX86(changeSReg[j], x, y, !computeAt);
+			innerScheduleX86(changeSRegX[j], x, y, !computeAt);
+			innerScheduleX86(amp[j], x, y, !computeAt);
 
-			parallelizeAndVectorize(changeC2[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(changeS2[j], x, y, VECTOR_SIZE);
+			innerScheduleX86(changeC2[j], x, y, !computeAt);
+			innerScheduleX86(changeS2[j], x, y, !computeAt);
 
-			parallelizeAndVectorize(lowpass1C[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(lowpass2C[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(lowpass1S[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(lowpass2S[j], x, y, VECTOR_SIZE);
+			innerScheduleX86(lowpass1C[j], x, y, !computeAt);
+			innerScheduleX86(lowpass2C[j], x, y, !computeAt);
+			innerScheduleX86(lowpass1S[j], x, y, !computeAt);
+			innerScheduleX86(lowpass2S[j], x, y, !computeAt);
 
-			parallelizeAndVectorize(phaseC[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(phaseS[j], x, y, VECTOR_SIZE);
+			innerScheduleX86(phaseC[j], x, y, !computeAt);
+			innerScheduleX86(phaseS[j], x, y, !computeAt);
+			innerScheduleX86(phi[j], x, y, !computeAt);
 
-			parallelizeAndVectorize(lPyramid[j], x, y, VECTOR_SIZE);
-			parallelizeAndVectorize(lPyramidUpX[j], x, y, VECTOR_SIZE);
+			innerScheduleX86(lPyramid[j], x, y, !computeAt);
+			innerScheduleX86(lPyramidUpX[j], x, y, !computeAt);
 			if (j > 0)
 			{
-				parallelizeAndVectorize(gPyramid[j], x, y, VECTOR_SIZE);
-				parallelizeAndVectorize(gPyramidDownX[j], x, y, VECTOR_SIZE);
+				innerScheduleX86(gPyramid[j], x, y, true);
+				innerScheduleX86(gPyramidDownX[j], x, y, true);
 			}
 		}
 	}
 
 	// The final level
-	gPyramid[pyramidLevels].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);
+	gPyramid[pyramidLevels].compute_root();
+	innerScheduleX86(gPyramid[pyramidLevels], x, y, true);
 }
 
 void RieszMagnifier::scheduleARM(bool tile)
@@ -396,16 +387,18 @@ void RieszMagnifier::scheduleARM(bool tile)
 	// Schedule
 	if (channels == 3)
 		output.reorder(c, x, y).bound(c, 0, channels).unroll(c);
-	output.parallel(y, 4).vectorize(x, 4);
 
+	output.vectorize(x, VECTOR_SIZE);
 	if (tile)
 	{
-		output.tile(x, y, xi, yi, 80, 20);
+		output.tile(x, y, xi, yi, 80, 40);
 	}
+	output.parallel(y);
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		if (tile)
+		bool computeAt = tile && j <= 1;
+		if (computeAt)
 		{
 			outGPyramid[j].compute_at(output, x);
 			outGPyramidUpX[j].compute_at(output, x);
@@ -418,8 +411,8 @@ void RieszMagnifier::scheduleARM(bool tile)
 			changeSRegX[j].compute_at(output, x);
 			amp[j].compute_at(output, x);
 
-			changeCTuple[j].compute_at(output, x);
-			changeSTuple[j].compute_at(output, xi);
+			changeC2[j].compute_at(output, x);
+			changeS2[j].compute_at(output, x);
 
 			lowpass1CCopy[j].compute_at(output, x);
 			lowpass2CCopy[j].compute_at(output, x);
@@ -436,9 +429,6 @@ void RieszMagnifier::scheduleARM(bool tile)
 			phaseS[j].compute_at(output, x);
 			phi[j].compute_at(output, x);
 
-			r1Pyramid[j].compute_at(output, x);
-			r2Pyramid[j].compute_at(output, x);
-
 			lPyramidCopy[j].compute_at(output, x);
 			lPyramid[j].compute_at(output, x);
 			lPyramidUpX[j].compute_at(output, x);
@@ -448,16 +438,16 @@ void RieszMagnifier::scheduleARM(bool tile)
 			outGPyramid[j].compute_root();
 			outGPyramidUpX[j].compute_root();
 
-			ampReg[j].compute_root().split(y, y, yi, 16);
-			ampRegX[j].compute_at(ampReg[j], y);
-			changeCReg[j].compute_root().split(y, y, yi, 16);
-			changeCRegX[j].compute_at(changeCReg[j], y);
-			changeSReg[j].compute_root().split(y, y, yi, 16);
-			changeSRegX[j].compute_at(changeSReg[j], y);
+			ampReg[j].compute_root();
+			ampRegX[j].compute_root();
+			changeCReg[j].compute_root();
+			changeCRegX[j].compute_root();
+			changeSReg[j].compute_root();
+			changeSRegX[j].compute_root();
 			amp[j].compute_root();
 
-			changeCTuple[j].compute_root();
-			changeSTuple[j].compute_root();
+			changeC2[j].compute_root();
+			changeS2[j].compute_root();
 
 			lowpass1CCopy[j].compute_root();
 			lowpass2CCopy[j].compute_root();
@@ -474,60 +464,56 @@ void RieszMagnifier::scheduleARM(bool tile)
 			phaseS[j].compute_root();
 			phi[j].compute_root();
 
-			r1Pyramid[j].compute_root();
-			r2Pyramid[j].compute_root();
-
 			lPyramidCopy[j].compute_root();
-			lPyramid[j].compute_root().split(y, y, yi, 8);
-			lPyramidUpX[j].compute_at(lPyramid[j], y);
+			lPyramid[j].compute_root();
+			lPyramidUpX[j].compute_root();
 		}
 
 		if (j > 0)
 		{
-			gPyramid[j].compute_root().split(y, y, yi, 8);
-			gPyramidDownX[j].compute_at(gPyramid[j], y);
+			gPyramid[j].compute_root();
+			gPyramidDownX[j].compute_root();
 		}
 
 		if (j <= 4)
 		{
-			outGPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			outGPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			// If computeAt, don't parallelize since it's not necessary.
+			innerScheduleX86(outGPyramid[j], x, y, !computeAt);
+			innerScheduleX86(outGPyramidUpX[j], x, y, !computeAt);
 
-			ampReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			ampRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeCReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeCRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSReg[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSRegX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			amp[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			innerScheduleX86(ampReg[j], x, y, !computeAt);
+			innerScheduleX86(ampRegX[j], x, y, !computeAt);
+			innerScheduleX86(changeCReg[j], x, y, !computeAt);
+			innerScheduleX86(changeCRegX[j], x, y, !computeAt);
+			innerScheduleX86(changeSReg[j], x, y, !computeAt);
+			innerScheduleX86(changeSRegX[j], x, y, !computeAt);
+			innerScheduleX86(amp[j], x, y, !computeAt);
 
-			changeCTuple[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			changeSTuple[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			innerScheduleX86(changeC2[j], x, y, !computeAt);
+			innerScheduleX86(changeS2[j], x, y, !computeAt);
 
-			lowpass1C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass2C[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass1S[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lowpass2S[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			innerScheduleX86(lowpass1C[j], x, y, !computeAt);
+			innerScheduleX86(lowpass2C[j], x, y, !computeAt);
+			innerScheduleX86(lowpass1S[j], x, y, !computeAt);
+			innerScheduleX86(lowpass2S[j], x, y, !computeAt);
 
-			phaseC[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			phaseS[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			phi[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			innerScheduleX86(phaseC[j], x, y, !computeAt);
+			innerScheduleX86(phaseS[j], x, y, !computeAt);
+			innerScheduleX86(phi[j], x, y, !computeAt);
 
-			r1Pyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			r2Pyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-
-			lPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-			lPyramidUpX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+			innerScheduleX86(lPyramid[j], x, y, !computeAt);
+			innerScheduleX86(lPyramidUpX[j], x, y, !computeAt);
 			if (j > 0)
 			{
-				gPyramid[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
-				gPyramidDownX[j].parallel(y, 4).vectorize(x, VECTOR_SIZE);
+				innerScheduleX86(gPyramid[j], x, y, true);
+				innerScheduleX86(gPyramidDownX[j], x, y, true);
 			}
 		}
 	}
 
 	// The final level
-	gPyramid[pyramidLevels].compute_root().parallel(y, 4).vectorize(x, VECTOR_SIZE);
+	gPyramid[pyramidLevels].compute_root();
+	innerScheduleX86(gPyramid[pyramidLevels], x, y, true);
 }
 
 void RieszMagnifier::compileJIT(bool tile, Target target)
@@ -557,7 +543,8 @@ void RieszMagnifier::compileToFile(std::string filenamePrefix, bool tile, Target
 	std::cout << "done! Elapsed: " << (currentTime() - t) / 1000 << " s" << std::endl;
 }
 
-void RieszMagnifier::bindJIT(float a1, float a2, float b0, float b1, float b2, float alpha, std::vector<Halide::Image<float>> historyBuffer)
+void RieszMagnifier::bindJIT(float a1, float a2, float b0, float b1, float b2, float alpha,
+	std::vector<Halide::Image<float>> historyBuffer)
 {
 	this->a1.set(a1);
 	this->a2.set(a2);

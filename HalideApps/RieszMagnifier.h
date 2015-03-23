@@ -29,9 +29,9 @@ private:
 	// Input params
 	Halide::ImageParam input;
 	// Filter coefficients
-	Halide::Param<float> a1, a2, b0, b1, b2;
+	Halide::Param<float> a1{ "a1" }, a2{ "a2" }, b0{ "b0" }, b1{ "b1" }, b2{ "b2" };
 	// Amplification coefficients
-	Halide::Param<float> alpha;
+	Halide::Param<float> alpha{ "alpha" };
 	// 4-dimensional buffer: For each pyramid level, an image of size width x height x type x circular buffer index.
 	// Types:
 	// ------
@@ -44,7 +44,7 @@ private:
 	// 6: lowpass2SBuffer
 	std::vector<Halide::ImageParam> historyBuffer;
 	// Current frame modulo 2. (For circular buffer).
-	Halide::Param<int> pParam;
+	Halide::Param<int> pParam{ "pParam" };
 
 	// Funcs
 	Halide::Var x{ "x" }, y{ "y" }, c{ "c" }, p{ "p" }, xi{ "xi" }, yi{ "yi" };
@@ -81,8 +81,6 @@ private:
 		lowpass2CCopy,
 		lowpass1SCopy,
 		lowpass2SCopy,
-		changeCTuple,
-		changeSTuple,
 		changeC2,
 		changeS2,
 		amp,
@@ -100,7 +98,7 @@ private:
 		outGPyramidUpX,
 		outGPyramid;
 
-	Halide::Func floatOutput, output;
+	Halide::Func floatOutput{ "floatOutput" }, output{ "output" };
 
 	int frameCounter;
 };

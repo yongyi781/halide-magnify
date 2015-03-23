@@ -129,7 +129,7 @@ int main_magnify()
 	std::string filename = "C:\\Users\\Yongyi\\Documents\\Visual Studio 2013\\Projects\\HalideApps\\HalideApps\\video.avi";
 	std::string filename2 = R"(C:\Users\Yongyi\Downloads\Saved\Video Magnification\RieszPyramidICCP2014pres\inputC.wmv)";
 	std::string filename3 = R"(C:\Users\Yongyi\Documents\MATLAB\EVM_Matlab\data\baby.avi)";
-	RieszMagnifier magnifier(3, Float(32), 2);
+	RieszMagnifier magnifier(3, Float(32), 7);
 	//EulerianMagnifier magnifier(app, 6, { 3.75, 7.5, 15, 30, 30, 30, 30, 30 });
 	magnifier.compileJIT(true);
 
@@ -148,7 +148,8 @@ int main_magnify()
 	std::vector<Image<float>> historyBuffer;
 	for (int i = 0; i < magnifier.getPyramidLevels(); i++)
 		historyBuffer.push_back(Image<float>(scaleSize(app.width(), i), scaleSize(app.height(), i), 7, 2));
-	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+	magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2],
+		alpha, historyBuffer);
 
 	//cv::VideoWriter writer("output.avi", -1, videoFps == 0 ? fps : videoFps, { app.width(), app.height() });
 	NamedWindow inputWindow("Input"), resultWindow("Result");
@@ -190,7 +191,8 @@ int main_magnify()
 			{
 				// Update fps
 				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
-				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2],
+					(float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 		}
 		std::cout << std::endl;
@@ -202,22 +204,25 @@ int main_magnify()
 				freqCenter = std::max(freqWidth, freqCenter - 0.5);
 				std::cout << "Freq center is now " << freqCenter << std::endl;
 				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
-				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2],
+					(float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 			else if (pressedKey == 43)	// plus
 			{
 				freqCenter += 0.5;
 				std::cout << "Freq center is now " << freqCenter << std::endl;
 				filter_util::computeFilter(videoFps == 0 ? fps : videoFps, freqCenter, freqWidth, filterA, filterB);
-				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2],
+					(float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
 			else if (pressedKey == 97)	// a
 			{
 				// Increase alpha
 				alpha += 10;
-				magnifier.bindJIT((float)filterA[1], (float)filterA[2], (float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
+				magnifier.bindJIT((float)filterA[1], (float)filterA[2],
+					(float)filterB[0], (float)filterB[1], (float)filterB[2], alpha, historyBuffer);
 			}
-			else if (pressedKey == 27)
+			else if (pressedKey == 27)	// Esc
 				break;
 		}
 	}
