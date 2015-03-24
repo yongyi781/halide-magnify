@@ -255,13 +255,13 @@ void RieszMagnifier::scheduleX86(bool tile)
 	output.vectorize(x, VECTOR_SIZE);
 	if (tile)
 	{
-		output.tile(x, y, xi, yi, 40, 40);
+		output.tile(x, y, xi, yi, 20, 80);
 	}
-	output.parallel(y);
+	output.parallel(x);
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		bool computeAt = tile && j <= 0;
+		bool computeAt = tile && j <= 1;
 		if (computeAt)
 		{
 			outGPyramid[j].compute_at(output, x);
@@ -275,8 +275,8 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeSRegX[j].compute_at(output, x);
 			amp[j].compute_at(output, x);
 
-			changeC2[j].compute_at(output, x);
-			changeS2[j].compute_at(output, x);
+			changeCAmp[j].compute_at(output, x);
+			changeSAmp[j].compute_at(output, x);
 
 			lowpass1CCopy[j].compute_at(output, x);
 			lowpass2CCopy[j].compute_at(output, x);
@@ -310,8 +310,8 @@ void RieszMagnifier::scheduleX86(bool tile)
 			changeSRegX[j].compute_root();
 			amp[j].compute_root();
 
-			changeC2[j].compute_root();
-			changeS2[j].compute_root();
+			changeCAmp[j].compute_root();
+			changeSAmp[j].compute_root();
 
 			lowpass1CCopy[j].compute_root();
 			lowpass2CCopy[j].compute_root();
@@ -353,8 +353,8 @@ void RieszMagnifier::scheduleX86(bool tile)
 			innerScheduleX86(changeSRegX[j], x, y, !computeAt);
 			innerScheduleX86(amp[j], x, y, !computeAt);
 
-			innerScheduleX86(changeC2[j], x, y, !computeAt);
-			innerScheduleX86(changeS2[j], x, y, !computeAt);
+			innerScheduleX86(changeCAmp[j], x, y, !computeAt);
+			innerScheduleX86(changeSAmp[j], x, y, !computeAt);
 
 			innerScheduleX86(lowpass1C[j], x, y, !computeAt);
 			innerScheduleX86(lowpass2C[j], x, y, !computeAt);
@@ -391,9 +391,9 @@ void RieszMagnifier::scheduleARM(bool tile)
 	output.vectorize(x, VECTOR_SIZE);
 	if (tile)
 	{
-		output.tile(x, y, xi, yi, 80, 40);
+		output.tile(x, y, xi, yi, 40, 80);
 	}
-	output.parallel(y);
+	output.parallel(x);
 
 	for (int j = 0; j < pyramidLevels; j++)
 	{
@@ -411,8 +411,8 @@ void RieszMagnifier::scheduleARM(bool tile)
 			changeSRegX[j].compute_at(output, x);
 			amp[j].compute_at(output, x);
 
-			changeC2[j].compute_at(output, x);
-			changeS2[j].compute_at(output, x);
+			changeCAmp[j].compute_at(output, x);
+			changeSAmp[j].compute_at(output, x);
 
 			lowpass1CCopy[j].compute_at(output, x);
 			lowpass2CCopy[j].compute_at(output, x);
@@ -446,8 +446,8 @@ void RieszMagnifier::scheduleARM(bool tile)
 			changeSRegX[j].compute_root();
 			amp[j].compute_root();
 
-			changeC2[j].compute_root();
-			changeS2[j].compute_root();
+			changeCAmp[j].compute_root();
+			changeSAmp[j].compute_root();
 
 			lowpass1CCopy[j].compute_root();
 			lowpass2CCopy[j].compute_root();
@@ -489,8 +489,8 @@ void RieszMagnifier::scheduleARM(bool tile)
 			innerScheduleX86(changeSRegX[j], x, y, !computeAt);
 			innerScheduleX86(amp[j], x, y, !computeAt);
 
-			innerScheduleX86(changeC2[j], x, y, !computeAt);
-			innerScheduleX86(changeS2[j], x, y, !computeAt);
+			innerScheduleX86(changeCAmp[j], x, y, !computeAt);
+			innerScheduleX86(changeSAmp[j], x, y, !computeAt);
 
 			innerScheduleX86(lowpass1C[j], x, y, !computeAt);
 			innerScheduleX86(lowpass2C[j], x, y, !computeAt);
