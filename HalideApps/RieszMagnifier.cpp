@@ -124,8 +124,8 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	phaseS = makeFuncArray(pyramidLevels, "phaseS");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		phaseC[j](x, y) = qPhaseDiffC[j](x, y) + historyBuffer[j](x, y, 1, (pParam + 1) % 2);
-		phaseS[j](x, y) = qPhaseDiffS[j](x, y) + historyBuffer[j](x, y, 2, (pParam + 1) % 2);
+		phaseC[j](x, y) = (qPhaseDiffC[j](x, y) + historyBuffer[j](x, y, 1, (pParam + 1) % 2));
+		phaseS[j](x, y) = (qPhaseDiffS[j](x, y) + historyBuffer[j](x, y, 2, (pParam + 1) % 2));
 	}
 
 	phaseCCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseC, historyBuffer, 1, pParam, "phaseCCopy");
@@ -157,6 +157,7 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	changeS2 = makeFuncArray(pyramidLevels, "changeS2");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
+		// The two TINY's are to force computation of the lowpass**Copy's.
 		changeC2[j](x, y) = changeC[j](x, y) + TINY * lowpass1CCopy[j](x, y) + TINY * lowpass2CCopy[j](x, y);
 		changeS2[j](x, y) = changeS[j](x, y) + TINY * lowpass1SCopy[j](x, y) + TINY * lowpass2SCopy[j](x, y);
 	}
