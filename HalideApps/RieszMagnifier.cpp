@@ -124,8 +124,8 @@ RieszMagnifier::RieszMagnifier(int channels, Halide::Type type, int pyramidLevel
 	phaseS = makeFuncArray(pyramidLevels, "phaseS");
 	for (int j = 0; j < pyramidLevels; j++)
 	{
-		phaseC[j](x, y) = (qPhaseDiffC[j](x, y) + historyBuffer[j](x, y, 1, (pParam + 1) % 2));
-		phaseS[j](x, y) = (qPhaseDiffS[j](x, y) + historyBuffer[j](x, y, 2, (pParam + 1) % 2));
+		phaseC[j](x, y) = historyBuffer[j](x, y, 1, (pParam + 1) % 2) + qPhaseDiffC[j](x, y);
+		phaseS[j](x, y) = historyBuffer[j](x, y, 2, (pParam + 1) % 2) + qPhaseDiffS[j](x, y);
 	}
 
 	phaseCCopy = copyPyramidToCircularBuffer(pyramidLevels, phaseC, historyBuffer, 1, pParam, "phaseCCopy");
@@ -381,6 +381,13 @@ void RieszMagnifier::scheduleX86(bool tile)
 	innerScheduleX86(gPyramid[pyramidLevels], x, y, true);
 }
 
+void innerScheduleARM(Func f, Var x, Var y, bool parallel = false)
+{
+	f.vectorize(x, 4);
+	if (parallel)
+		f.parallel(y, 4);
+}
+
 void RieszMagnifier::scheduleARM(bool tile)
 {
 	const int VECTOR_SIZE = 4;
@@ -479,42 +486,42 @@ void RieszMagnifier::scheduleARM(bool tile)
 		if (j <= 4)
 		{
 			// If computeAt, don't parallelize since it's not necessary.
-			innerScheduleX86(outGPyramid[j], x, y, !computeAt);
-			innerScheduleX86(outGPyramidUpX[j], x, y, !computeAt);
+			innerScheduleARM(outGPyramid[j], x, y, !computeAt);
+			innerScheduleARM(outGPyramidUpX[j], x, y, !computeAt);
 
-			innerScheduleX86(ampReg[j], x, y, !computeAt);
-			innerScheduleX86(ampRegX[j], x, y, !computeAt);
-			innerScheduleX86(changeCReg[j], x, y, !computeAt);
-			innerScheduleX86(changeCRegX[j], x, y, !computeAt);
-			innerScheduleX86(changeSReg[j], x, y, !computeAt);
-			innerScheduleX86(changeSRegX[j], x, y, !computeAt);
-			innerScheduleX86(amp[j], x, y, !computeAt);
+			innerScheduleARM(ampReg[j], x, y, !computeAt);
+			innerScheduleARM(ampRegX[j], x, y, !computeAt);
+			innerScheduleARM(changeCReg[j], x, y, !computeAt);
+			innerScheduleARM(changeCRegX[j], x, y, !computeAt);
+			innerScheduleARM(changeSReg[j], x, y, !computeAt);
+			innerScheduleARM(changeSRegX[j], x, y, !computeAt);
+			innerScheduleARM(amp[j], x, y, !computeAt);
 
-			innerScheduleX86(changeCAmp[j], x, y, !computeAt);
-			innerScheduleX86(changeSAmp[j], x, y, !computeAt);
+			innerScheduleARM(changeCAmp[j], x, y, !computeAt);
+			innerScheduleARM(changeSAmp[j], x, y, !computeAt);
 
-			innerScheduleX86(lowpass1C[j], x, y, !computeAt);
-			innerScheduleX86(lowpass2C[j], x, y, !computeAt);
-			innerScheduleX86(lowpass1S[j], x, y, !computeAt);
-			innerScheduleX86(lowpass2S[j], x, y, !computeAt);
+			innerScheduleARM(lowpass1C[j], x, y, !computeAt);
+			innerScheduleARM(lowpass2C[j], x, y, !computeAt);
+			innerScheduleARM(lowpass1S[j], x, y, !computeAt);
+			innerScheduleARM(lowpass2S[j], x, y, !computeAt);
 
-			innerScheduleX86(phaseC[j], x, y, !computeAt);
-			innerScheduleX86(phaseS[j], x, y, !computeAt);
-			innerScheduleX86(phi[j], x, y, !computeAt);
+			innerScheduleARM(phaseC[j], x, y, !computeAt);
+			innerScheduleARM(phaseS[j], x, y, !computeAt);
+			innerScheduleARM(phi[j], x, y, !computeAt);
 
-			innerScheduleX86(lPyramid[j], x, y, !computeAt);
-			innerScheduleX86(lPyramidUpX[j], x, y, !computeAt);
+			innerScheduleARM(lPyramid[j], x, y, !computeAt);
+			innerScheduleARM(lPyramidUpX[j], x, y, !computeAt);
 			if (j > 0)
 			{
-				innerScheduleX86(gPyramid[j], x, y, true);
-				innerScheduleX86(gPyramidDownX[j], x, y, true);
+				innerScheduleARM(gPyramid[j], x, y, true);
+				innerScheduleARM(gPyramidDownX[j], x, y, true);
 			}
 		}
 	}
 
 	// The final level
 	gPyramid[pyramidLevels].compute_root();
-	innerScheduleX86(gPyramid[pyramidLevels], x, y, true);
+	innerScheduleARM(gPyramid[pyramidLevels], x, y, true);
 }
 
 void RieszMagnifier::compileJIT(bool tile, Target target)

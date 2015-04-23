@@ -1,15 +1,10 @@
 #pragma once
 
-#include <stdint.h>
-
-extern "C" bool __stdcall QueryPerformanceCounter(uint64_t *);
-extern "C" bool __stdcall QueryPerformanceFrequency(uint64_t *);
-
 // Get current time (measured in milliseconds).
 inline double currentTime()
 {
-	uint64_t t, freq;
-	QueryPerformanceCounter(&t);
-	QueryPerformanceFrequency(&freq);
-	return (t * 1000.0) / freq;
+	auto t = std::chrono::high_resolution_clock::now().time_since_epoch();
+	int freq = std::chrono::high_resolution_clock::duration::period::den;
+	// Assuming period has numerator 1
+	return (double)t.count() / (freq / 1000);
 }

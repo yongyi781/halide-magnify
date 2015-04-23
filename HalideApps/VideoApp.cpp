@@ -23,7 +23,7 @@ Image<float> VideoApp::readFrame()
 
 	if (!convert.defined())
 	{
-		convert(x, y, c) = ip(c, x / scaleFactor, y / scaleFactor) / 255.0f;
+		convert(x, y, c) = ip(2 - c, x / scaleFactor, y / scaleFactor) / 255.0f;
 		convert.vectorize(x, 4).parallel(y, 4);
 	}
 
@@ -51,7 +51,7 @@ Image<uint8_t> VideoApp::readFrame_uint8()
 	cv::Mat frame;
 	cap >> frame;
 	if (frame.empty())
-		return Image<float>();
+		return Image<uint8_t>();
 
 	ip.set(Buffer(UInt(8), frame.channels(), frame.cols, frame.rows, 0, frame.data));
 	return convert.realize(scaleFactor * frame.cols, scaleFactor * frame.rows);
