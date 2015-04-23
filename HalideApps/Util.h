@@ -146,6 +146,40 @@ inline Halide::Func upsampleG5Y(Halide::Func f)
 	return upy;
 }
 
+// Upsample using Gaussian upsampling in x direction
+inline Halide::Func upsample5X(Halide::Func f)
+{
+	Halide::Func upx("upx");
+	Halide::Var x, y;
+
+	Halide::Expr c0 = Halide::cast<uint16_t>(((x + 1) % 2) * 6);
+	Halide::Expr c1 = Halide::cast<uint16_t>((x % 2) * 4);
+	Halide::Expr c2 = Halide::cast<uint16_t>(((x + 1) % 2) * 1);
+
+	upx(x, y, Halide::_) = (c0 * f(x / 2, y, Halide::_)
+		+ c1 * (f(x / 2, y, Halide::_) + f(x / 2 + 1, y, Halide::_))
+		+ c2 * (f(x / 2 - 1, y, Halide::_) + f(x / 2 + 1, y, Halide::_))) / (c0 + 2 * c1 + 2 * c2);
+
+	return upx;
+}
+
+// Upsample using Gaussian upsampling in y direction
+inline Halide::Func upsample5Y(Halide::Func f)
+{
+	Halide::Func upy("upy");
+	Halide::Var x, y;
+
+	Halide::Expr c0 = Halide::cast<uint16_t>(((y + 1) % 2) * 6);
+	Halide::Expr c1 = Halide::cast<uint16_t>((y % 2) * 4);
+	Halide::Expr c2 = Halide::cast<uint16_t>(((y + 1) % 2) * 1);
+
+	upy(x, y, Halide::_) = (c0 * f(x, y / 2, Halide::_)
+		+ c1 * (f(x, y / 2, Halide::_) + f(x, y / 2 + 1, Halide::_))
+		+ c2 * (f(x, y / 2 - 1, Halide::_) + f(x, y / 2 + 1, Halide::_))) / (c0 + 2 * c1 + 2 * c2);
+
+	return upy;
+}
+
 inline Halide::Func clipToEdges(Halide::ImageParam im)
 {
 	Halide::Var x, y;
@@ -161,14 +195,22 @@ inline Halide::Func clipToEdges(Halide::Func f, Halide::Expr width, Halide::Expr
 // Extern function to copy data to an external circular buffer of images.
 // p is the offset in the third dimension to copy to (for circular buffers). Set to 0 if unused.
 extern "C" __declspec(dllexport) int copyFloat32(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t* out);
+extern "C" __declspec(dllexport) int copyInt16(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t* out);
 
 std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name);
 
 // Creates a function which copies the output of a function to a circular buffer of images.
 // pParam is the index in the circular buffer.
-Halide::Func copyToCircularBuffer(Halide::Func input, Halide::ImageParam buffer, Halide::Expr bufferType, Halide::Param<int> pParam, std::string name);
+Halide::Func copyToCircularBuffer(Halide::Func input, Halide::ImageParam buffer, Halide::Expr bufferType, Halide::Param<int> pParam, std::string name, Halide::Type type = Halide::Float(32));
 
-std::vector<Halide::Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Halide::Func>& input, const std::vector<Halide::ImageParam>& buffer, Halide::Expr bufferType, Halide::Param<int> pParam, std::string name);
+std::vector<Halide::Func> copyPyramidToCircularBuffer(
+	int pyramidLevels,
+	const std::vector<Halide::Func>& input,
+	const std::vector<Halide::ImageParam>& buffer,
+	Halide::Expr bufferType,
+	Halide::Param<int> pParam,
+	std::string name,
+	Halide::Type type = Halide::Float(32));
 
 Halide::Func gaussianBlurX(Halide::Func in, float sigma);
 Halide::Func gaussianBlurY(Halide::Func in, float sigma);

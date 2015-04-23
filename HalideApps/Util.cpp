@@ -40,6 +40,41 @@ int copyFloat32(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t*
 	return 0;
 }
 
+int copyInt16(int bufferType, int p, buffer_t* copyTo, buffer_t* in, buffer_t* out)
+{
+	if (in->host == nullptr || out->host == nullptr)
+	{
+		if (in->host == nullptr)
+		{
+			for (int i = 0; i < 2; i++)
+			{
+				in->min[i] = out->min[i];
+				in->extent[i] = out->extent[i];
+			}
+		}
+	}
+	else
+	{
+#if TRACE
+		printf("[Copy] p: %d out: [%d, %d] x [%d, %d], in: [%d, %d] x [%d, %d]\n", p,
+			out->min[0], out->min[0] + out->extent[0] - 1, out->min[1], out->min[1] + out->extent[1] - 1,
+			in->min[0], in->min[0] + in->extent[0] - 1, in->min[1], in->min[1] + in->extent[1] - 1);
+#endif
+		int16_t* src = (int16_t*)in->host;
+		int16_t* dst = (int16_t*)out->host;
+		int16_t* dstCopy = (int16_t*)copyTo->host + bufferType * copyTo->stride[2] + p * copyTo->stride[3];
+		for (int y = out->min[1]; y < out->min[1] + out->extent[1]; y++)
+		{
+			int16_t* srcLine = src + (y - in->min[1]) * in->stride[1];
+			int16_t* dstLine = dst + (y - out->min[1]) * out->stride[1];
+			int16_t* copyLine = dstCopy + y * copyTo->stride[1];
+			memcpy(dstLine, srcLine + out->min[0] - in->min[0], sizeof(int16_t) * out->extent[0]);
+			memcpy(copyLine + out->min[0], srcLine + out->min[0] - in->min[0], sizeof(int16_t) * out->extent[0]);
+		}
+	}
+	return 0;
+}
+
 std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name)
 {
 	std::vector<Halide::Func> f(pyramidLevels);
@@ -50,18 +85,18 @@ std::vector<Halide::Func> makeFuncArray(int pyramidLevels, std::string name)
 	return f;
 }
 
-Func copyToCircularBuffer(Func input, ImageParam buffer, Expr bufferType, Param<int> pParam, std::string name)
+Func copyToCircularBuffer(Func input, ImageParam buffer, Expr bufferType, Param<int> pParam, std::string name, Type type)
 {
 	Func f(name);
-	f.define_extern("copyFloat32", { bufferType, pParam, buffer, input }, Float(32), 2);
+	f.define_extern(type == Int(16) ? "copyInt16" : "copyFloat32", { bufferType, pParam, buffer, input }, type, 2);
 	return f;
 }
 
-std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Func>& input, const std::vector<ImageParam>& buffer, Expr bufferType, Param<int> pParam, std::string name)
+std::vector<Func> copyPyramidToCircularBuffer(int pyramidLevels, const std::vector<Func>& input, const std::vector<ImageParam>& buffer, Expr bufferType, Param<int> pParam, std::string name, Type type)
 {
 	std::vector<Func> fPyr(pyramidLevels);
 	for (int j = 0; j < pyramidLevels; j++)
-		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], bufferType, pParam, name + "_" + std::to_string(j));
+		fPyr[j] = copyToCircularBuffer(input[j], buffer[j], bufferType, pParam, name + "_" + std::to_string(j), type);
 	return fPyr;
 }
 

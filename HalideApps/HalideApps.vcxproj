@@ -277,6 +277,7 @@
     <ClInclude Include="EulerianMagnifier.h" />
     <ClInclude Include="filter_util.h" />
     <ClInclude Include="RieszMagnifier.h" />
+    <ClInclude Include="RieszMagnifierFloat.h" />
     <ClInclude Include="Util.h" />
     <ClInclude Include="NamedWindow.h" />
     <ClInclude Include="stdafx.h" />
@@ -287,6 +288,7 @@
     <ClCompile Include="EulerianMagnifier.cpp" />
     <ClCompile Include="filter_util.cpp" />
     <ClCompile Include="RieszMagnifier.cpp" />
+    <ClCompile Include="RieszMagnifierFloat.cpp" />
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="HalideApps.cpp" />
     <ClCompile Include="NamedWindow.cpp" />

@@ -1,12 +1,12 @@
 #pragma once
 
-class RieszMagnifier
+class RieszMagnifierFloat
 {
 public:
-	RieszMagnifier(int channels, Halide::Type type, int pyramidLevels = 5);
+	RieszMagnifierFloat(int channels, Halide::Type type, int pyramidLevels = 5);
 	void compileJIT(bool tile, Halide::Target target = Halide::get_target_from_environment());
 	void compileToFile(std::string filenamePrefix, bool tile, Halide::Target target = Halide::get_target_from_environment());
-	void bindJIT(float a1, float a2, float b0, float b1, float b2, float alpha, std::vector<Halide::Image<int16_t>> historyBuffer);
+	void bindJIT(float a1, float a2, float b0, float b1, float b2, float alpha, std::vector<Halide::Image<float>> historyBuffer);
 	void process(Halide::Buffer frame, Halide::Buffer out);
 	void computeBandSigmas();
 
@@ -98,7 +98,7 @@ private:
 		outGPyramidUpX,
 		outGPyramid;
 
-	Halide::Func output16{ "output16" }, output{ "output" };
+	Halide::Func floatOutput{ "floatOutput" }, output{ "output" };
 
 	int frameCounter;
 };
